@@ -1,1 +1,96 @@
-hi
+public List<MergedEntity> getMergedEntities() {
+    ObjectMapper mapper = new ObjectMapper();
+
+    try {
+        JsonNode results1 = mapper.readTree(new ClassPathResource("data.json").getInputStream()).get("results");
+        JsonNode results2 = mapper.readTree(new ClassPathResource("kyc.json").getInputStream()).get("results");
+
+        return StreamSupport.stream(results1.spliterator(), false)
+            .map(result1 -> result1.path("entity"))
+            .filter(entityNode -> !entityNode.isMissingNode())
+            .map(entityNode -> {
+                try {
+                    Identifiers file1Identifiers = mapper.treeToValue(entityNode.get("identifiers"), Identifiers.class);
+                    List<RadixData> radixList = Optional.ofNullable(entityNode.get("radixData"))
+                        .filter(JsonNode::isArray)
+                        .map(array -> StreamSupport.stream(array.spliterator(), false)
+                            .map(node -> {
+                                try {
+                                    return mapper.treeToValue(node, RadixData.class);
+                                } catch (Exception e) {
+                                    return null;
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .collect(Collectors.toList()))
+                        .orElse(Collections.emptyList());
+
+                    return StreamSupport.stream(results2.spliterator(), false)
+                        .map(result2 -> {
+                            JsonNode file2IdentifiersArray = result2.get("identifiers");
+                            try {
+                                if (file2IdentifiersArray == null || !file2IdentifiersArray.isArray() || file2IdentifiersArray.size() == 0)
+                                    return null;
+
+                                Identifiers file2Identifiers = mapper.treeToValue(file2IdentifiersArray.get(0), Identifiers.class);
+
+                                if (!file1Identifiers.getPtyId().equals(file2Identifiers.getPtyId()))
+                                    return null;
+
+                                MergedEntity merged = new MergedEntity();
+                                merged.setIdentifiers(file1Identifiers);
+                                merged.setRadixData(radixList);
+
+                                JsonNode kycDataNode = result2.get("kycData");
+                                if (kycDataNode != null && !kycDataNode.isMissingNode()) {
+
+                                    Optional.ofNullable(kycDataNode.get("kycSite"))
+                                        .filter(JsonNode::isArray)
+                                        .map(siteArray -> {
+                                            try {
+                                                return mapper.readerForListOf(KycSites.class).readValue(siteArray);
+                                            } catch (Exception e) {
+                                                return null;
+                                            }
+                                        })
+                                        .ifPresentOrElse(merged::setKycSites, () -> merged.setKycSites(null));
+
+                                    Optional.ofNullable(kycDataNode.get("kycSegment"))
+                                        .filter(node -> !node.isNull())
+                                        .map(JsonNode::asText)
+                                        .ifPresentOrElse(merged::setKycSegments, () -> merged.setKycSegments(null));
+
+                                    Optional.ofNullable(kycDataNode.get("riskIndustry"))
+                                        .filter(JsonNode::isArray)
+                                        .map(riskArray -> {
+                                            try {
+                                                return mapper.convertValue(riskArray, new TypeReference<List<RiskIndustry>>() {});
+                                            } catch (Exception e) {
+                                                return null;
+                                            }
+                                        })
+                                        .ifPresentOrElse(merged::setRiskIndustry, () -> merged.setRiskIndustry(null));
+                                }
+
+                                return merged;
+                            } catch (Exception e) {
+                                return null;
+                            }
+                        })
+                        .filter(Objects::nonNull)
+                        .findFirst()
+                        .orElse(null);
+
+                } catch (Exception e) {
+                    return null;
+                }
+            })
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        return Collections.emptyList();
+    }
+}
+
