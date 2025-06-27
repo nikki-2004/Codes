@@ -4,17 +4,23 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.Model.*;
-import org.springframework.core.io.ClassPathResource;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
 import java.util.*;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.StreamSupport;
 
 @Service
 public class DataService {
+
+    @Value("${file1.path}")
+    private Resource file1Resource;
+
+    @Value("${file2.path}")
+    private Resource file2Resource;
 
     public List<MergedEntity> getMergedEntities() {
         List<MergedEntity> mergedList = new ArrayList<>();
@@ -22,106 +28,77 @@ public class DataService {
         try {
             ObjectMapper mapper = new ObjectMapper();
 
-            InputStream is1 = new ClassPathResource("data.json").getInputStream();
-            JsonNode root1 = mapper.readTree(is1);
-            JsonNode results1 = root1.get("results");
+            JsonNode root1 = mapper.readTree(file1Resource.getInputStream());
+            JsonNode root2 = mapper.readTree(file2Resource.getInputStream());
 
-            InputStream is2 = new ClassPathResource("kyc.json").getInputStream();
-            JsonNode root2 = mapper.readTree(is2);
-            JsonNode results2 = root2.get("results");
+            JsonNode results1 = root1.path("results");
+            JsonNode results2 = root2.path("results");
 
-            List<MergedEntity> result = StreamSupport.stream(results1.spliterator(), false)
-                    .map(result1 -> {
-                        JsonNode entityNode = result1.path("entity");
-                        if (entityNode.isMissingNode()) return null;
+            StreamSupport.stream(results1.spliterator(), false)
+                .map(result1 -> {
+                    JsonNode entityNode = result1.path("entity");
+                    if (entityNode.isMissingNode()) return null;
 
-                        try {
-                            Identifiers file1Identifiers = mapper.treeToValue(entityNode.get("identifiers"), Identifiers.class);
+                    Identifiers file1Identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
+                    List<RadixData> radixList = Optional.ofNullable(result1.path("radixData"))
+                        .filter(JsonNode::isArray)
+                        .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                .map(node -> mapper.convertValue(node, RadixData.class))
+                                .collect(Collectors.toList()))
+                        .orElse(Collections.emptyList());
 
-                            List<RadixData> radixList = Optional.ofNullable(result1.get("radixData"))
-                                    .filter(JsonNode::isArray)
-                                    .map(radixArray -> StreamSupport.stream(radixArray.spliterator(), false)
-                                            .map(node -> {
-                                                try {
-                                                    return mapper.treeToValue(node, RadixData.class);
-                                                } catch (Exception e) {
-                                                    return null;
-                                                }
-                                            })
-                                            .filter(Objects::nonNull)
-                                            .collect(Collectors.toList())
-                                    ).orElse(new ArrayList<>());
+                    return results2.findValues("identifiers").stream()
+                        .filter(array -> array.isArray() && array.size() > 0)
+                        .map(array -> mapper.convertValue(array.get(0), Identifiers.class))
+                        .filter(file2Identifiers -> file1Identifiers.getPtyId().equals(file2Identifiers.getPtyId()))
+                        .findFirst()
+                        .map(matchedIdentifier -> {
+                            MergedEntity merged = new MergedEntity();
+                            merged.setIdentifiers(file1Identifiers);
+                            merged.setRadixData(radixList);
 
-                            return StreamSupport.stream(results2.spliterator(), false)
-                                    .map(result2 -> {
-                                        JsonNode idArray = result2.get("identifiers");
-                                        if (idArray == null || !idArray.isArray() || idArray.size() == 0) return null;
+                            JsonNode matchingResult2 = StreamSupport.stream(results2.spliterator(), false)
+                                .filter(r -> {
+                                    JsonNode idNode = r.get("identifiers");
+                                    return idNode != null && idNode.isArray() && idNode.size() > 0 &&
+                                        file1Identifiers.getPtyId().equals(
+                                            mapper.convertValue(idNode.get(0), Identifiers.class).getPtyId());
+                                })
+                                .findFirst()
+                                .orElse(null);
 
-                                        try {
-                                            Identifiers file2Identifiers = mapper.treeToValue(idArray.get(0), Identifiers.class);
+                            Optional.ofNullable(matchingResult2)
+                                .map(r -> r.get("kycData"))
+                                .ifPresentOrElse(kycData -> {
+                                    // kycSites
+                                    Optional.ofNullable(kycData.get("kycSite"))
+                                        .filter(JsonNode::isArray)
+                                        .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
+                                        .ifPresentOrElse(merged::setKycSites, () -> merged.setKycSites(null));
 
-                                            if (!file1Identifiers.getPtyId().equals(file2Identifiers.getPtyId()))
-                                                return null;
+                                    // kycSegments
+                                    Optional.ofNullable(kycData.get("kycSegment"))
+                                        .filter(JsonNode::isTextual)
+                                        .map(JsonNode::asText)
+                                        .ifPresentOrElse(merged::setKycSegments, () -> merged.setKycSegments(null));
 
-                                            MergedEntity merged = new MergedEntity();
-                                            merged.setIdentifiers(file1Identifiers);
-                                            merged.setRadixData(radixList);
+                                    // riskIndustry
+                                    Optional.ofNullable(kycData.get("riskIndustry"))
+                                        .filter(JsonNode::isArray)
+                                        .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
+                                        .ifPresentOrElse(merged::setRiskIndustry, () -> merged.setRiskIndustry(null));
+                                }, () -> {
+                                    merged.setKycSites(null);
+                                    merged.setKycSegments(null);
+                                    merged.setRiskIndustry(null);
+                                });
 
-                                            JsonNode kycDataNode = result2.get("kycData");
-
-                                            Optional.ofNullable(kycDataNode)
-                                                    .map(k -> k.get("kycSite"))
-                                                    .filter(JsonNode::isArray)
-                                                    .map(siteArray -> {
-                                                        try {
-                                                            return mapper.readerForListOf(KycSites.class).readValue(siteArray);
-                                                        } catch (Exception e) {
-                                                            e.printStackTrace();
-                                                            return null;
-                                                        }
-                                                    })
-                                                    .ifPresentOrElse(
-                                                            merged::setKycSites,
-                                                            () -> merged.setKycSites(null)
-                                                    );
-
-                                            Optional.ofNullable(kycDataNode)
-                                                    .map(k -> k.get("kycSegment"))
-                                                    .map(JsonNode::asText)
-                                                    .ifPresentOrElse(
-                                                            merged::setKycSegments,
-                                                            () -> merged.setKycSegments(null)
-                                                    );
-
-                                            Optional.ofNullable(kycDataNode)
-                                                    .map(k -> k.get("riskIndustry"))
-                                                    .filter(JsonNode::isArray)
-                                                    .map(riskArray -> mapper.convertValue(riskArray, new TypeReference<List<RiskIndustry>>() {}))
-                                                    .ifPresentOrElse(
-                                                            merged::setRiskIndustry,
-                                                            () -> merged.setRiskIndustry(null)
-                                                    );
-
-                                            return merged;
-
-                                        } catch (Exception e) {
-                                            e.printStackTrace();
-                                            return null;
-                                        }
-                                    })
-                                    .filter(Objects::nonNull)
-                                    .findFirst()
-                                    .orElse(null);
-
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-
-            mergedList.addAll(result);
+                            return merged;
+                        })
+                        .orElse(null);
+                })
+                .filter(Objects::nonNull)
+                .forEach(mergedList::add);
 
         } catch (Exception e) {
             e.printStackTrace();
