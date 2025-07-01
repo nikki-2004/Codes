@@ -15,88 +15,99 @@ import java.util.stream.StreamSupport;
 @Service
 public class DataService {
 
-    @Value("${finance.api.url}")
-    private String financeApiUrl;
+    @Value("${finance.api.url}")
+    private String financeApiUrl;
 
-    @Value("${kyc.api.url}")
-    private String kycApiUrl;
+    @Value("${kyc.api.url}")
+    private String kycApiUrl;
 
-    private final RestTemplate restTemplate = new RestTemplate();
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper;
 
-    public List<MergedEntity> getMergedEntities() {
-        List<MergedEntity> mergedList = new ArrayList<>();
+    public DataService() {
+        this.restTemplate = new RestTemplate();
+        this.mapper = new ObjectMapper();
+    }
 
-        try {
-            // Step 1: Fetch data from both APIs
-            String financeJson = restTemplate.getForObject(financeApiUrl, String.class);
-            String kycJson = restTemplate.getForObject(kycApiUrl, String.class);
+    public List<MergedEntity> getMergedEntities() {
+        List<MergedEntity> mergedList = new ArrayList<>();
 
-            // Step 2: Parse both JSONs
-            JsonNode financeRoot = mapper.readTree(financeJson);
-            JsonNode kycRoot = mapper.readTree(kycJson);
+        try {
+            // Step 1: Call both APIs
+            String financeJson = restTemplate.getForObject(financeApiUrl, String.class);
+            String kycJson = restTemplate.getForObject(kycApiUrl, String.class);
 
-            JsonNode financeResults = financeRoot.path("result");
-            JsonNode kycResults = kycRoot.path("result");
+            // Step 2: Parse JSON roots
+            JsonNode financeRoot = mapper.readTree(financeJson);
+            JsonNode kycRoot = mapper.readTree(kycJson);
 
-            // Step 3: Loop through finance results
-            for (JsonNode financeNode : financeResults) {
-                JsonNode entityNode = financeNode.path("entity");
-                if (entityNode.isMissingNode()) continue;
+            JsonNode financeResults = financeRoot.path("result");
+            JsonNode kycResults = kycRoot.path("result");
 
-                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
-                if (identifiers.getPtyId() == null) continue;
+            // Step 3: Loop through each finance entity
+            for (JsonNode financeNode : financeResults) {
+                JsonNode entityNode = financeNode.path("entity");
+                if (entityNode.isMissingNode()) continue;
 
-                // Extract radixData
-                List<RadixData> radixList = Optional.ofNullable(financeNode.path("radixData"))
-                        .filter(JsonNode::isArray)
-                        .map(array -> StreamSupport.stream(array.spliterator(), false)
-                                .map(node -> mapper.convertValue(node, RadixData.class))
-                                .collect(Collectors.toList()))
-                        .orElse(Collections.emptyList());
+                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
+                if (identifiers.getPtyId() == null) continue;
 
-                // Step 4: Match ptyId in KYC result
-                JsonNode matchedKyc = StreamSupport.stream(kycResults.spliterator(), false)
-                        .filter(kycNode -> {
-                            JsonNode ids = kycNode.path("identifiers");
-                            return ids.isArray() && ids.size() > 0 &&
-                                   identifiers.getPtyId().equals(
-                                       mapper.convertValue(ids.get(0), Identifiers.class).getPtyId());
-                        })
-                        .findFirst()
-                        .orElse(null);
+                // Get radixData
+                List<RadixData> radixList = Optional.ofNullable(financeNode.path("radixData"))
+                        .filter(JsonNode::isArray)
+                        .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                .map(node -> mapper.convertValue(node, RadixData.class))
+                                .collect(Collectors.toList()))
+                        .orElse(Collections.emptyList());
 
-                // Step 5: Create merged entity
-                MergedEntity merged = new MergedEntity();
-                merged.setIdentifiers(identifiers);
-                merged.setRadixData(radixList);
+                // Step 4: Match with KYC entity by ptyId
+                JsonNode matchedKyc = StreamSupport.stream(kycResults.spliterator(), false)
+                        .filter(kycNode -> {
+                            JsonNode ids = kycNode.path("identifiers");
+                            return ids.isArray() && ids.size() > 0 &&
+                                    identifiers.getPtyId().equals(
+                                            mapper.convertValue(ids.get(0), Identifiers.class).getPtyId());
+                        })
+                        .findFirst()
+                        .orElse(null);
 
-                if (matchedKyc != null) {
-                    JsonNode kycData = matchedKyc.path("kycData");
+                // Step 5: Create merged entity
+                MergedEntity merged = new MergedEntity();
+                merged.setIdentifiers(identifiers);
+                merged.setRadixData(radixList);
 
-                    Optional.ofNullable(kycData.get("kycSite"))
-                            .filter(JsonNode::isArray)
-                            .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
-                            .ifPresent(merged::setKycSites);
+                if (matchedKyc != null) {
+                    JsonNode kycData = matchedKyc.path("kycData");
 
-                    Optional.ofNullable(kycData.get("kycSegment"))
-                            .filter(JsonNode::isTextual)
-                            .map(JsonNode::asText)
-                            .ifPresent(merged::setKycSegments);
+                    // kycSites
+                    Optional.ofNullable(kycData.get("kycSite"))
+                            .filter(JsonNode::isArray)
+                            .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
+                            .ifPresent(merged::setKycSites);
 
-                    Optional.ofNullable(kycData.get("riskIndustry"))
-                            .filter(JsonNode::isArray)
-                            .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
-                            .ifPresent(merged::setRiskIndustry);
-                }
+                    // kycSegments
+                    Optional.ofNullable(kycData.get("kycSegment"))
+                            .filter(JsonNode::isTextual)
+                            .map(JsonNode::asText)
+                            .ifPresent(merged::setKycSegments);
 
-                mergedList.add(merged);
-            }
+                    // riskIndustry
+                    Optional.ofNullable(kycData.get("riskIndustry"))
+                            .filter(JsonNode::isArray)
+                            .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
+                            .ifPresent(merged::setRiskIndustry);
+                }
 
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+                // Add to final list
+                mergedList.add(merged);
+            }
 
-        return mergedList;
-    }
+        } catch (Exception e) {
+            System.err.println("Error while merging Finance and KYC data: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedList;
+    }
 }
+
