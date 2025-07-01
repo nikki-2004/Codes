@@ -1,57 +1,26 @@
-package org.example.service;
+package org.example.util;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.MergedEntity;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+import javax.net.ssl.*;
+import java.security.cert.X509Certificate;
+import java.security.SecureRandom;
 
-import java.util.*;
+public class SSLUtil {
+    public static void disableSSLVerification() {
+        try {
+            TrustManager[] trustAllCerts = new TrustManager[]{
+                new X509TrustManager() {
+                    public void checkClientTrusted(X509Certificate[] xcs, String string) { }
+                    public void checkServerTrusted(X509Certificate[] xcs, String string) { }
+                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
+                }
+            };
+            SSLContext sc = SSLContext.getInstance("TLS");
+            sc.init(null, trustAllCerts, new SecureRandom());
+            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
 
-@Service
-public class MergeService {
-
-    @Value("${api.financech.url}")
-    private String financeChUrl;
-
-    @Value("${api.kyc.url}")
-    private String kycUrl;
-
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    public List<MergedEntity> fetchAndMergeData() throws Exception {
-        RestTemplate restTemplate = new RestTemplate();
-
-        // Fetch FinanceCH data
-        String financeResponse = restTemplate.getForObject(financeChUrl, String.class);
-        JsonNode financeResults = mapper.readTree(financeResponse).path("results");
-
-        // Fetch KYC data
-        String kycResponse = restTemplate.getForObject(kycUrl, String.class);
-        JsonNode kycResults = mapper.readTree(kycResponse).path("results");
-
-        // Build a map from KYC data by ptyId
-        Map<String, JsonNode> kycMap = new HashMap<>();
-        for (JsonNode kycNode : kycResults) {
-            String ptyId = kycNode.path("entity").path("identifiers").path("ptyId").asText();
-            if (!ptyId.isEmpty()) {
-                kycMap.put(ptyId, kycNode);
-            }
+            HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-
-        List<MergedEntity> mergedEntities = new ArrayList<>();
-
-        for (JsonNode financeNode : financeResults) {
-            String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
-            MergedEntity merged = new MergedEntity();
-
-            merged.setFinanceData(financeNode);
-            merged.setKycData(kycMap.getOrDefault(ptyId, null)); // may be null if no match
-
-            mergedEntities.add(merged);
-        }
-
-        return mergedEntities;
     }
 }
