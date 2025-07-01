@@ -1,26 +1,73 @@
-package org.example.util;
+package org.example.service;
 
-import javax.net.ssl.*;
-import java.security.cert.X509Certificate;
-import java.security.SecureRandom;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.model.MergedEntity;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+import org.example.util.SSLUtil;
 
-public class SSLUtil {
-    public static void disableSSLVerification() {
-        try {
-            TrustManager[] trustAllCerts = new TrustManager[]{
-                new X509TrustManager() {
-                    public void checkClientTrusted(X509Certificate[] xcs, String string) { }
-                    public void checkServerTrusted(X509Certificate[] xcs, String string) { }
-                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                }
-            };
-            SSLContext sc = SSLContext.getInstance("TLS");
-            sc.init(null, trustAllCerts, new SecureRandom());
-            HttpsURLConnection.setDefaultSSLSocketFactory(sc.getSocketFactory());
+import java.util.*;
 
-            HttpsURLConnection.setDefaultHostnameVerifier((hostname, session) -> true);
-        } catch (Exception e) {
-            e.printStackTrace();
+@Service
+public class MergeService {
+
+    @Value("${api.financech.url}")
+    private String financeChUrl;
+
+    @Value("${api.kyc.url}")
+    private String kycUrl;
+
+    @Value("${api.username}")
+    private String username;
+
+    @Value("${api.password}")
+    private String password;
+
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    public List<MergedEntity> fetchAndMergeData() throws Exception {
+        SSLUtil.disableSSLVerification();
+
+        RestTemplate restTemplate = new RestTemplate();
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBasicAuth(username, password);
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        HttpEntity<String> entity = new HttpEntity<>(headers);
+
+        // FinanceCH API
+        ResponseEntity<String> response1 = restTemplate.exchange(
+            financeChUrl, HttpMethod.GET, entity, String.class);
+        JsonNode financeResults = mapper.readTree(response1.getBody()).path("results");
+
+        // KYC API
+        ResponseEntity<String> response2 = restTemplate.exchange(
+            kycUrl, HttpMethod.GET, entity, String.class);
+        JsonNode kycResults = mapper.readTree(response2.getBody()).path("results");
+
+        // Build KYC map by ptyId
+        Map<String, JsonNode> kycMap = new HashMap<>();
+        for (JsonNode kycNode : kycResults) {
+            String ptyId = kycNode.path("entity").path("identifiers").path("ptyId").asText();
+            if (!ptyId.isEmpty()) {
+                kycMap.put(ptyId, kycNode);
+            }
         }
+
+        List<MergedEntity> mergedList = new ArrayList<>();
+        for (JsonNode financeNode : financeResults) {
+            String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
+
+            MergedEntity merged = new MergedEntity();
+            merged.setFinanceData(financeNode);
+            merged.setKycData(kycMap.getOrDefault(ptyId, null));
+
+            mergedList.add(merged);
+        }
+
+        return mergedList;
     }
 }
