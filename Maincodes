@@ -1,113 +1,57 @@
 package org.example.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.Model.*;
+import org.example.model.MergedEntity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
 @Service
-public class DataService {
+public class MergeService {
 
-    @Value("${finance.api.url}")
-    private String financeApiUrl;
+    @Value("${api.financech.url}")
+    private String financeChUrl;
 
-    @Value("${kyc.api.url}")
-    private String kycApiUrl;
+    @Value("${api.kyc.url}")
+    private String kycUrl;
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper mapper;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-    public DataService() {
-        this.restTemplate = new RestTemplate();
-        this.mapper = new ObjectMapper();
-    }
+    public List<MergedEntity> fetchAndMergeData() throws Exception {
+        RestTemplate restTemplate = new RestTemplate();
 
-    public List<MergedEntity> getMergedEntities() {
-        List<MergedEntity> mergedList = new ArrayList<>();
+        // Fetch FinanceCH data
+        String financeResponse = restTemplate.getForObject(financeChUrl, String.class);
+        JsonNode financeResults = mapper.readTree(financeResponse).path("results");
 
-        try {
-            // Step 1: Call both APIs
-            String financeJson = restTemplate.getForObject(financeApiUrl, String.class);
-            String kycJson = restTemplate.getForObject(kycApiUrl, String.class);
+        // Fetch KYC data
+        String kycResponse = restTemplate.getForObject(kycUrl, String.class);
+        JsonNode kycResults = mapper.readTree(kycResponse).path("results");
 
-            // Step 2: Parse JSON roots
-            JsonNode financeRoot = mapper.readTree(financeJson);
-            JsonNode kycRoot = mapper.readTree(kycJson);
-
-            JsonNode financeResults = financeRoot.path("result");
-            JsonNode kycResults = kycRoot.path("result");
-
-            // Step 3: Loop through each finance entity
-            for (JsonNode financeNode : financeResults) {
-                JsonNode entityNode = financeNode.path("entity");
-                if (entityNode.isMissingNode()) continue;
-
-                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
-                if (identifiers.getPtyId() == null) continue;
-
-                // Get radixData
-                List<RadixData> radixList = Optional.ofNullable(financeNode.path("radixData"))
-                        .filter(JsonNode::isArray)
-                        .map(array -> StreamSupport.stream(array.spliterator(), false)
-                                .map(node -> mapper.convertValue(node, RadixData.class))
-                                .collect(Collectors.toList()))
-                        .orElse(Collections.emptyList());
-
-                // Step 4: Match with KYC entity by ptyId
-                JsonNode matchedKyc = StreamSupport.stream(kycResults.spliterator(), false)
-                        .filter(kycNode -> {
-                            JsonNode ids = kycNode.path("identifiers");
-                            return ids.isArray() && ids.size() > 0 &&
-                                    identifiers.getPtyId().equals(
-                                            mapper.convertValue(ids.get(0), Identifiers.class).getPtyId());
-                        })
-                        .findFirst()
-                        .orElse(null);
-
-                // Step 5: Create merged entity
-                MergedEntity merged = new MergedEntity();
-                merged.setIdentifiers(identifiers);
-                merged.setRadixData(radixList);
-
-                if (matchedKyc != null) {
-                    JsonNode kycData = matchedKyc.path("kycData");
-
-                    // kycSites
-                    Optional.ofNullable(kycData.get("kycSite"))
-                            .filter(JsonNode::isArray)
-                            .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
-                            .ifPresent(merged::setKycSites);
-
-                    // kycSegments
-                    Optional.ofNullable(kycData.get("kycSegment"))
-                            .filter(JsonNode::isTextual)
-                            .map(JsonNode::asText)
-                            .ifPresent(merged::setKycSegments);
-
-                    // riskIndustry
-                    Optional.ofNullable(kycData.get("riskIndustry"))
-                            .filter(JsonNode::isArray)
-                            .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
-                            .ifPresent(merged::setRiskIndustry);
-                }
-
-                // Add to final list
-                mergedList.add(merged);
+        // Build a map from KYC data by ptyId
+        Map<String, JsonNode> kycMap = new HashMap<>();
+        for (JsonNode kycNode : kycResults) {
+            String ptyId = kycNode.path("entity").path("identifiers").path("ptyId").asText();
+            if (!ptyId.isEmpty()) {
+                kycMap.put(ptyId, kycNode);
             }
-
-        } catch (Exception e) {
-            System.err.println("Error while merging Finance and KYC data: " + e.getMessage());
-            e.printStackTrace();
         }
 
-        return mergedList;
+        List<MergedEntity> mergedEntities = new ArrayList<>();
+
+        for (JsonNode financeNode : financeResults) {
+            String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
+            MergedEntity merged = new MergedEntity();
+
+            merged.setFinanceData(financeNode);
+            merged.setKycData(kycMap.getOrDefault(ptyId, null)); // may be null if no match
+
+            mergedEntities.add(merged);
+        }
+
+        return mergedEntities;
     }
 }
-
