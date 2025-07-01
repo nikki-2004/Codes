@@ -2,13 +2,13 @@ package org.example.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.MergedEntity;
-import org.example.util.SSLUtil;
+import org.example.model.CombinedEntity;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.io.File;
 import java.util.*;
 
 @Service
@@ -23,26 +23,25 @@ public class MergeService {
     @Value("${api.token}")
     private String token;
 
+    @Value("${output.file.path}")
+    private String outputFilePath;
+
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public List<MergedEntity> fetchAndMergeData() throws Exception {
-        // Disable SSL checks for staging
-        SSLUtil.disableSSLVerification();
-
+    public List<CombinedEntity> mergeEntities() throws Exception {
         RestTemplate restTemplate = new RestTemplate();
 
-        // Set Bearer Token
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(token);
         headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
-        // Call FinanceCH API
+        // Fetch FinanceCH
         ResponseEntity<String> financeResponse = restTemplate.exchange(
                 financeChUrl, HttpMethod.GET, entity, String.class);
         JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
-        // Call KYC API
+        // Fetch KYC
         ResponseEntity<String> kycResponse = restTemplate.exchange(
                 kycUrl, HttpMethod.GET, entity, String.class);
         JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
@@ -56,17 +55,23 @@ public class MergeService {
             }
         }
 
-        List<MergedEntity> mergedList = new ArrayList<>();
+        List<CombinedEntity> combinedList = new ArrayList<>();
         for (JsonNode financeNode : financeResults) {
             String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
+            JsonNode kycNode = kycMap.get(ptyId);
 
-            MergedEntity merged = new MergedEntity();
-            merged.setFinanceData(financeNode);
-            merged.setKycData(kycMap.getOrDefault(ptyId, null)); // could be null if not matched
+            CombinedEntity combined = new CombinedEntity();
+            combined.setIdentifiers(financeNode.path("entity").path("identifiers"));
+            combined.setFinanceData(financeNode);
+            combined.setKycData(kycNode);
 
-            mergedList.add(merged);
+            combinedList.add(combined);
         }
 
-        return mergedList;
+        // Save to output JSON
+        mapper.writerWithDefaultPrettyPrinter()
+              .writeValue(new File(outputFilePath), combinedList);
+
+        return combinedList;
     }
 }
