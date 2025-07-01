@@ -1,38 +1,15 @@
-package org.example;
+@RestController
+@RequestMapping("/api")
+public class MergedEntityController {
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.Model.MergedEntity;
-import org.example.service.DataService;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.context.annotation.Configuration;
+    private final DataService dataService;
 
-import java.io.File;
-import java.util.List;
+    public MergedEntityController(DataService dataService) {
+        this.dataService = dataService;
+    }
 
-@Configuration
-public class DataLoader implements ApplicationRunner {
-
-    private final DataService service;
-    private final ObjectMapper mapper;
-
-    @Value("${output.file.path}")
-    private String outputPath;
-
-    public DataLoader(DataService service, ObjectMapper mapper) {
-        this.service = service;
-        this.mapper = mapper;
-    }
-
-    @Override
-    public void run(ApplicationArguments args) throws Exception {
-        try {
-            List<MergedEntity> result = service.getMergedEntities();
-            mapper.writerWithDefaultPrettyPrinter().writeValue(new File(outputPath), result);
-            System.out.println("Data written to: " + outputPath);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
+    @GetMapping("/merged-entities")
+    public List<MergedEntity> getAllMergedEntities() {
+        return dataService.getMergedEntities();
+    }
 }
