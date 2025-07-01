@@ -36,29 +36,32 @@ public class MergeService {
         headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
-        // Fetch FinanceCH
+        // Fetch FinanceCH data
         ResponseEntity<String> financeResponse = restTemplate.exchange(
                 financeChUrl, HttpMethod.GET, entity, String.class);
         JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
-        // Fetch KYC
-        ResponseEntity<String> kycResponse = restTemplate.exchange(
-                kycUrl, HttpMethod.GET, entity, String.class);
-        JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
-
-        // Map KYC by ptyId
-        Map<String, JsonNode> kycMap = new HashMap<>();
-        for (JsonNode kycNode : kycResults) {
-            String ptyId = kycNode.path("entity").path("identifiers").path("ptyId").asText();
-            if (!ptyId.isEmpty()) {
-                kycMap.put(ptyId, kycNode);
-            }
-        }
-
         List<CombinedEntity> combinedList = new ArrayList<>();
+
         for (JsonNode financeNode : financeResults) {
             String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
-            JsonNode kycNode = kycMap.get(ptyId);
+            if (ptyId == null || ptyId.isEmpty()) continue;
+
+            // Fetch KYC data using ptyId
+            String kycQueryUrl = kycUrl + "?ptyId=" + ptyId;
+            JsonNode kycNode = null;
+
+            try {
+                ResponseEntity<String> kycResponse = restTemplate.exchange(
+                        kycQueryUrl, HttpMethod.GET, entity, String.class);
+                JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
+
+                if (kycResults.isArray() && kycResults.size() > 0) {
+                    kycNode = kycResults.get(0);
+                }
+            } catch (Exception e) {
+                System.out.println("Failed to fetch KYC for ptyId: " + ptyId);
+            }
 
             CombinedEntity combined = new CombinedEntity();
             combined.setIdentifiers(financeNode.path("entity").path("identifiers"));
@@ -68,7 +71,7 @@ public class MergeService {
             combinedList.add(combined);
         }
 
-        // Save to output JSON
+        // Write to file
         mapper.writerWithDefaultPrettyPrinter()
               .writeValue(new File(outputFilePath), combinedList);
 
