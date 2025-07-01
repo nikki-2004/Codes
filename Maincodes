@@ -1,80 +1,20 @@
-package org.example.service;
+package org.example.config;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.CombinedEntity;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.http.client.*;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.File;
-import java.util.*;
+import java.time.Duration;
 
-@Service
-public class MergeService {
+@Configuration
+public class RestTemplateConfig {
 
-    @Value("${api.financech.url}")
-    private String financeChUrl;
-
-    @Value("${api.kyc.url}")
-    private String kycUrl;
-
-    @Value("${api.token}")
-    private String token;
-
-    @Value("${output.file.path}")
-    private String outputFilePath;
-
-    private final ObjectMapper mapper = new ObjectMapper();
-
-    public List<CombinedEntity> mergeEntities() throws Exception {
-        RestTemplate restTemplate = new RestTemplate();
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(token);
-        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-        HttpEntity<String> entity = new HttpEntity<>(headers);
-
-        // Fetch FinanceCH data
-        ResponseEntity<String> financeResponse = restTemplate.exchange(
-                financeChUrl, HttpMethod.GET, entity, String.class);
-        JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
-
-        List<CombinedEntity> combinedList = new ArrayList<>();
-
-        for (JsonNode financeNode : financeResults) {
-            String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
-            if (ptyId == null || ptyId.isEmpty()) continue;
-
-            // Fetch KYC data using ptyId
-            String kycQueryUrl = kycUrl + "?ptyId=" + ptyId;
-            JsonNode kycNode = null;
-
-            try {
-                ResponseEntity<String> kycResponse = restTemplate.exchange(
-                        kycQueryUrl, HttpMethod.GET, entity, String.class);
-                JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
-
-                if (kycResults.isArray() && kycResults.size() > 0) {
-                    kycNode = kycResults.get(0);
-                }
-            } catch (Exception e) {
-                System.out.println("Failed to fetch KYC for ptyId: " + ptyId);
-            }
-
-            CombinedEntity combined = new CombinedEntity();
-            combined.setIdentifiers(financeNode.path("entity").path("identifiers"));
-            combined.setFinanceData(financeNode);
-            combined.setKycData(kycNode);
-
-            combinedList.add(combined);
-        }
-
-        // Write to file
-        mapper.writerWithDefaultPrettyPrinter()
-              .writeValue(new File(outputFilePath), combinedList);
-
-        return combinedList;
+    @Bean
+    public RestTemplate restTemplate() {
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
+        factory.setConnectTimeout(5000); // 5 sec
+        factory.setReadTimeout(10000);   // 10 sec
+        return new RestTemplate(factory);
     }
 }
