@@ -3,11 +3,11 @@ package org.example.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.model.MergedEntity;
+import org.example.util.SSLUtil;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
-import org.example.util.SSLUtil;
 
 import java.util.*;
 
@@ -20,35 +20,34 @@ public class MergeService {
     @Value("${api.kyc.url}")
     private String kycUrl;
 
-    @Value("${api.username}")
-    private String username;
-
-    @Value("${api.password}")
-    private String password;
+    @Value("${api.token}")
+    private String token;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
     public List<MergedEntity> fetchAndMergeData() throws Exception {
+        // Disable SSL checks for staging
         SSLUtil.disableSSLVerification();
 
         RestTemplate restTemplate = new RestTemplate();
 
+        // Set Bearer Token
         HttpHeaders headers = new HttpHeaders();
-        headers.setBasicAuth(username, password);
+        headers.setBearerAuth(token);
         headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
         HttpEntity<String> entity = new HttpEntity<>(headers);
 
-        // FinanceCH API
-        ResponseEntity<String> response1 = restTemplate.exchange(
-            financeChUrl, HttpMethod.GET, entity, String.class);
-        JsonNode financeResults = mapper.readTree(response1.getBody()).path("results");
+        // Call FinanceCH API
+        ResponseEntity<String> financeResponse = restTemplate.exchange(
+                financeChUrl, HttpMethod.GET, entity, String.class);
+        JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
-        // KYC API
-        ResponseEntity<String> response2 = restTemplate.exchange(
-            kycUrl, HttpMethod.GET, entity, String.class);
-        JsonNode kycResults = mapper.readTree(response2.getBody()).path("results");
+        // Call KYC API
+        ResponseEntity<String> kycResponse = restTemplate.exchange(
+                kycUrl, HttpMethod.GET, entity, String.class);
+        JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
 
-        // Build KYC map by ptyId
+        // Map KYC by ptyId
         Map<String, JsonNode> kycMap = new HashMap<>();
         for (JsonNode kycNode : kycResults) {
             String ptyId = kycNode.path("entity").path("identifiers").path("ptyId").asText();
@@ -63,7 +62,7 @@ public class MergeService {
 
             MergedEntity merged = new MergedEntity();
             merged.setFinanceData(financeNode);
-            merged.setKycData(kycMap.getOrDefault(ptyId, null));
+            merged.setKycData(kycMap.getOrDefault(ptyId, null)); // could be null if not matched
 
             mergedList.add(merged);
         }
