@@ -18,23 +18,23 @@ public class FinanceChService {
     private String financeChToken;
 
     private final RestTemplate restTemplate;
-    private final ObjectMapper mapper;
+    private final ObjectMapper objectMapper;
 
-    public FinanceChService(RestTemplate restTemplate, ObjectMapper mapper) {
+    public FinanceChService(RestTemplate restTemplate, ObjectMapper objectMapper) {
         this.restTemplate = restTemplate;
-        this.mapper = mapper;
+        this.objectMapper = objectMapper;
     }
 
     public MergedEntity fetchAndStoreFinanceData() {
         try {
-            // Prepare headers
+            // Prepare header
             HttpHeaders headers = new HttpHeaders();
             String[] tokenParts = financeChToken.split(":", 2);
             headers.set(tokenParts[0].trim(), tokenParts[1].trim());
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            // Send GET request
+            // Call external API
             ResponseEntity<String> response = restTemplate.exchange(
                     financeChUrl,
                     HttpMethod.GET,
@@ -42,15 +42,14 @@ public class FinanceChService {
                     String.class
             );
 
-            // Convert response body to JsonNode
-            JsonNode jsonData = mapper.readTree(response.getBody());
-
-            MergedEntity result = new MergedEntity();
-            result.setFinanceData(jsonData);
-            return result;
+            // Convert to JsonNode
+            JsonNode data = objectMapper.readTree(response.getBody());
+            MergedEntity mergedEntity = new MergedEntity();
+            mergedEntity.setFinanceData(data);
+            return mergedEntity;
 
         } catch (Exception e) {
-            throw new RuntimeException("Error fetching FinanceCH data", e);
+            throw new RuntimeException("Failed to fetch/parse API response", e);
         }
     }
 }
