@@ -27,16 +27,14 @@ public class FinanceChService {
 
     public MergedEntity fetchAndStoreFinanceData() {
         try {
-            // ✅ Create headers
+            // Prepare headers
             HttpHeaders headers = new HttpHeaders();
-            
-            // ✅ Extract header name and value from property
-            String[] tokenParts = financeChToken.split(":", 2); // Split into "Authorization" and "Bearer xxx"
+            String[] tokenParts = financeChToken.split(":", 2);
             headers.set(tokenParts[0].trim(), tokenParts[1].trim());
 
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            // ✅ Make the GET request with headers
+            // Send GET request
             ResponseEntity<String> response = restTemplate.exchange(
                     financeChUrl,
                     HttpMethod.GET,
@@ -44,15 +42,15 @@ public class FinanceChService {
                     String.class
             );
 
-            // ✅ Parse response to JsonNode
-            JsonNode root = mapper.readTree(response.getBody());
+            // Convert response body to JsonNode
+            JsonNode jsonData = mapper.readTree(response.getBody());
 
-            MergedEntity merged = new MergedEntity();
-            merged.setFinanceData(root);
-            return merged;
+            MergedEntity result = new MergedEntity();
+            result.setFinanceData(jsonData);
+            return result;
 
         } catch (Exception e) {
-            throw new RuntimeException("Failed to fetch or parse FinanceCH data", e);
+            throw new RuntimeException("Error fetching FinanceCH data", e);
         }
     }
 }
