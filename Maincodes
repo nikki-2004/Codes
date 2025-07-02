@@ -1,8 +1,21 @@
+package org.example.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.model.MergedEntity;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
 @Service
 public class FinanceChService {
 
     @Value("${api.financech.url}")
     private String financeChUrl;
+
+    @Value("${api.financech.token}")
+    private String financeChToken;
 
     private final RestTemplate restTemplate;
     private final ObjectMapper mapper;
@@ -13,15 +26,33 @@ public class FinanceChService {
     }
 
     public MergedEntity fetchAndStoreFinanceData() {
-        String json = restTemplate.getForObject(financeChUrl, String.class);
-
         try {
-            JsonNode root = mapper.readTree(json);
-            MergedEntity entity = new MergedEntity();
-            entity.setFinanceData(root);
-            return entity;
+            // ✅ Create headers
+            HttpHeaders headers = new HttpHeaders();
+            
+            // ✅ Extract header name and value from property
+            String[] tokenParts = financeChToken.split(":", 2); // Split into "Authorization" and "Bearer xxx"
+            headers.set(tokenParts[0].trim(), tokenParts[1].trim());
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            // ✅ Make the GET request with headers
+            ResponseEntity<String> response = restTemplate.exchange(
+                    financeChUrl,
+                    HttpMethod.GET,
+                    entity,
+                    String.class
+            );
+
+            // ✅ Parse response to JsonNode
+            JsonNode root = mapper.readTree(response.getBody());
+
+            MergedEntity merged = new MergedEntity();
+            merged.setFinanceData(root);
+            return merged;
+
         } catch (Exception e) {
-            throw new RuntimeException("Error parsing JSON", e);
+            throw new RuntimeException("Failed to fetch or parse FinanceCH data", e);
         }
     }
 }
