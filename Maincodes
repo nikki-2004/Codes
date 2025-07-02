@@ -1,20 +1,73 @@
-package org.example.config;
+@Service
+public class MergeService {
 
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.http.client.*;
-import org.springframework.web.client.RestTemplate;
+    @Value("${api.financech.url}")
+    private String financeChUrl;
 
-import java.time.Duration;
+    @Value("${api.kyc.url}")
+    private String kycUrl;
 
-@Configuration
-public class RestTemplateConfig {
+    @Value("${api.financech.token}")
+    private String financeToken;
 
-    @Bean
-    public RestTemplate restTemplate() {
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory();
-        factory.setConnectTimeout(5000); // 5 sec
-        factory.setReadTimeout(10000);   // 10 sec
-        return new RestTemplate(factory);
+    @Value("${api.kyc.token}")
+    private String kycToken;
+
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    public MergeService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    public List<CombinedEntity> mergeEntities() throws Exception {
+        List<CombinedEntity> combinedList = new ArrayList<>();
+
+        // 🔹 Headers for Finance API
+        HttpHeaders financeHeaders = new HttpHeaders();
+        financeHeaders.set("Authorization", "Bearer " + financeToken);
+        financeHeaders.setAccept(List.of(MediaType.APPLICATION_JSON));
+        HttpEntity<String> financeEntity = new HttpEntity<>(financeHeaders);
+
+        // 🔹 Call FinanceCH API
+        ResponseEntity<String> financeResponse = restTemplate.exchange(
+                financeChUrl, HttpMethod.GET, financeEntity, String.class);
+
+        JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
+
+        // 🔄 Loop through each finance result
+        for (JsonNode financeNode : financeResults) {
+            String ptyId = financeNode.path("entity").path("identifiers").path("ptyId").asText();
+            if (ptyId == null || ptyId.isEmpty()) continue;
+
+            // 🔹 Headers for KYC API (separate)
+            HttpHeaders kycHeaders = new HttpHeaders();
+            kycHeaders.set("Authorization", "Bearer " + kycToken);
+            kycHeaders.setAccept(List.of(MediaType.APPLICATION_JSON));
+            HttpEntity<String> kycEntity = new HttpEntity<>(kycHeaders);
+
+            String kycQueryUrl = kycUrl + "?ptyId=" + ptyId;
+
+            JsonNode kycData = null;
+            try {
+                ResponseEntity<String> kycResponse = restTemplate.exchange(
+                        kycQueryUrl, HttpMethod.GET, kycEntity, String.class);
+
+                JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
+                if (kycResults.isArray() && kycResults.size() > 0) {
+                    kycData = kycResults.get(0);
+                }
+
+            } catch (Exception e) {
+                System.err.println("❌ KYC fetch failed for ptyId: " + ptyId + " → " + e.getMessage());
+            }
+
+            CombinedEntity combined = new CombinedEntity();
+            combined.setFinanceData(financeNode);
+            combined.setKycData(kycData);
+            combinedList.add(combined);
+        }
+
+        return combinedList;
     }
 }
