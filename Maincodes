@@ -1,34 +1,3 @@
-// This is a full Spring Boot mock version
-// It bypasses the actual API call and uses mock FinanceCH and KYC data
-// Useful when real API domain (e.g., api-int.staging.echonet) is unreachable due to network
-
-// === application.properties ===
-
-api.financech.url=http://localhost:8080/mock/financech
-api.kyc.url=http://localhost:8080/mock/kyc
-api.token=dummy-token
-
-
-// === MergedEntity.java ===
-package org.example.model;
-
-import java.util.List;
-
-public class MergedEntity {
-    private Identifiers identifiers;
-    private List<RadixData> radixData;
-    private List<KycSites> kycSites;
-    private String kycSegments;
-    private List<RiskIndustry> riskIndustry;
-
-    // Getters and Setters
-}
-
-
-// === Identifiers.java, RadixData.java, KycSites.java, RiskIndustry.java ===
-// Create these model classes with standard fields + getters/setters based on your JSON
-
-
 // === DataService.java ===
 package org.example.service;
 
@@ -37,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.model.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -53,18 +23,35 @@ public class DataService {
     @Value("${api.kyc.url}")
     private String kycUrl;
 
+    @Value("${api.token}")
+    private String token;
+
     private final ObjectMapper mapper = new ObjectMapper();
     private final RestTemplate restTemplate = new RestTemplate();
 
     public List<MergedEntity> getMergedEntities() {
         List<MergedEntity> mergedList = new ArrayList<>();
         try {
-            JsonNode financeRoot = mapper.readTree(restTemplate.getForObject(financeChUrl, String.class));
-            JsonNode kycRoot = mapper.readTree(restTemplate.getForObject(kycUrl, String.class));
+            // Set up headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + token);
+            headers.set("Accept", "application/json");
 
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            // Fetch FinanceCH data
+            ResponseEntity<String> financeResponse = restTemplate.exchange(
+                    financeChUrl, HttpMethod.GET, entity, String.class);
+            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
             JsonNode financeResults = financeRoot.path("results");
+
+            // Fetch KYC data
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    kycUrl, HttpMethod.GET, entity, String.class);
+            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
             JsonNode kycResults = kycRoot.path("results");
 
+            // Map KYC data by ptyId
             Map<String, JsonNode> kycMap = new HashMap<>();
             for (JsonNode result : kycResults) {
                 JsonNode ids = result.path("identifiers");
@@ -74,9 +61,10 @@ public class DataService {
                 }
             }
 
+            // Process finance data
             for (JsonNode result : financeResults) {
-                JsonNode entity = result.path("entity");
-                Identifiers identifiers = mapper.convertValue(entity.path("identifiers"), Identifiers.class);
+                JsonNode entityNode = result.path("entity");
+                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
                 String ptyId = identifiers.getPtyId();
 
                 List<RadixData> radixList = Optional.ofNullable(result.path("radixData"))
@@ -111,68 +99,9 @@ public class DataService {
                 mergedList.add(merged);
             }
         } catch (Exception e) {
+            System.out.println("Error retrieving merged entities: " + e.getMessage());
             e.printStackTrace();
         }
         return mergedList;
-    }
-}
-
-
-// === MockApiController.java ===
-package org.example.controller;
-
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
-import java.util.Map;
-
-@RestController
-public class MockApiController {
-
-    @GetMapping("/mock/financech")
-    public Map<String, Object> mockFinanceCh() {
-        // Return mock JSON data with 'results' containing 'entity' and 'radixData'
-        return Map.of("results", List.of(
-                Map.of("entity", Map.of("identifiers", Map.of("ptyId", "123")),
-                       "radixData", List.of(Map.of("dataId", "r1", "value", "radixValue")))
-        ));
-    }
-
-    @GetMapping("/mock/kyc")
-    public Map<String, Object> mockKyc() {
-        return Map.of("results", List.of(
-                Map.of("identifiers", List.of(Map.of("ptyId", "123")),
-                       "kycData", Map.of(
-                           "kycSites", List.of(Map.of("siteId", "s1")),
-                           "kycSegment", "SegmentA",
-                           "riskIndustry", List.of(Map.of("code", "RI1", "description", "RiskDesc"))
-                       ))
-        ));
-    }
-}
-
-
-// === DataLoader.java ===
-package org.example.loader;
-
-import org.example.model.MergedEntity;
-import org.example.service.DataService;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
-import org.springframework.stereotype.Component;
-
-import java.util.List;
-
-@Component
-public class DataLoader implements ApplicationRunner {
-    private final DataService dataService;
-
-    public DataLoader(DataService dataService) {
-        this.dataService = dataService;
-    }
-
-    @Override
-    public void run(ApplicationArguments args) {
-        List<MergedEntity> result = dataService.getMergedEntities();
-        result.forEach(System.out::println);
     }
 }
