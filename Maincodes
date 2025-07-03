@@ -1,31 +1,117 @@
-package org.example.controller;
+package org.example.service;
 
-import org.example.model.MergedEntity;
-import org.example.service.DataService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.model.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
-import java.util.List;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
-@RestController
-@RequestMapping("/api/merged")
-public class MergedEntityController {
+@Service
+public class DataService {
 
-    private final DataService dataService;
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper;
 
-    @Autowired
-    public MergedEntityController(DataService dataService) {
-        this.dataService = dataService;
-    }
+    @Value("${api.financech.url}")
+    private String financeChUrl;
 
-    @GetMapping
-    public ResponseEntity<List<MergedEntity>> getAllMergedEntities() {
-        try {
-            List<MergedEntity> mergedEntities = dataService.getMergedEntities();
-            return ResponseEntity.ok(mergedEntities);
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().build();
-        }
-    }
+    @Value("${api.kyc.url}")
+    private String kycUrl;
+
+    @Value("${api.token}")
+    private String token;
+
+    public DataService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+        this.mapper = new ObjectMapper();
+    }
+
+    public List<MergedEntity> getMergedEntities() {
+        List<MergedEntity> mergedList = new ArrayList<>();
+
+        try {
+            // Setup headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(token);
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            // Fetch FinanceCH data
+            ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
+            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
+            JsonNode financeResults = financeRoot.path("results");
+
+            // Fetch KYC data
+            ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, request, String.class);
+            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
+            JsonNode kycResults = kycRoot.path("results");
+
+            // Build a map of ptyId -> kycData
+            Map<String, JsonNode> kycMap = new HashMap<>();
+            for (JsonNode kycResult : kycResults) {
+                JsonNode identifiersNode = kycResult.path("identifiers");
+                if (identifiersNode.isArray() && identifiersNode.size() > 0) {
+                    Identifiers identifiers = mapper.convertValue(identifiersNode.get(0), Identifiers.class);
+                    kycMap.put(identifiers.getPtyId(), kycResult.path("kycData"));
+                }
+            }
+
+            // Iterate over FinanceCH results
+            for (JsonNode financeResult : financeResults) {
+                JsonNode entityNode = financeResult.path("entity");
+                if (entityNode.isMissingNode()) continue;
+
+                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
+                String ptyId = identifiers.getPtyId();
+
+                // Match only if KYC data also available for same ptyId
+                if (kycMap.containsKey(ptyId)) {
+                    MergedEntity merged = new MergedEntity();
+                    merged.setIdentifiers(identifiers);
+
+                    // Map radixData
+                    List<RadixData> radixDataList = Optional.ofNullable(financeResult.path("radixData"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                    .map(node -> mapper.convertValue(node, RadixData.class))
+                                    .collect(Collectors.toList()))
+                            .orElse(Collections.emptyList());
+                    merged.setRadixData(radixDataList);
+
+                    // Map KYC fields
+                    JsonNode kycData = kycMap.get(ptyId);
+
+                    Optional.ofNullable(kycData.get("kycSites"))
+                            .filter(JsonNode::isArray)
+                            .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
+                            .ifPresent(merged::setKycSites);
+
+                    Optional.ofNullable(kycData.get("kycSegment"))
+                            .filter(JsonNode::isTextual)
+                            .map(JsonNode::asText)
+                            .ifPresent(merged::setKycSegments);
+
+                    Optional.ofNullable(kycData.get("riskIndustry"))
+                            .filter(JsonNode::isArray)
+                            .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
+                            .ifPresent(merged::setRiskIndustry);
+
+                    mergedList.add(merged);
+                }
+            }
+
+        } catch (Exception e) {
+            System.err.println("Error retrieving merged entities: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedList;
+    }
 }
