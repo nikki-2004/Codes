@@ -27,14 +27,14 @@ public class DataService {
     @Value("${api.token}")
     private String apiToken;
 
-    private final WebClient webClient;
     private final ObjectMapper mapper;
+    private final WebClient webClient;
 
     public DataService(ObjectMapper mapper) {
         this.mapper = mapper;
         this.webClient = WebClient.builder()
-                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiToken)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + apiToken)
                 .build();
     }
 
@@ -42,7 +42,7 @@ public class DataService {
         List<MergedEntity> mergedList = new ArrayList<>();
 
         try {
-            // Step 1: Call FinanceCH API (GET)
+            // Step 1: GET FinanceCH Data
             String financeResponseBody = webClient.get()
                     .uri(financeChUrl)
                     .retrieve()
@@ -52,9 +52,9 @@ public class DataService {
             JsonNode financeRoot = mapper.readTree(financeResponseBody);
             JsonNode financeResults = financeRoot.path("results");
 
-            // Step 2: Extract ptyIds and results
             List<String> ptyIds = new ArrayList<>();
             List<JsonNode> financeResultList = new ArrayList<>();
+
             for (JsonNode result : financeResults) {
                 JsonNode entity = result.path("entity");
                 if (!entity.isMissingNode() && entity.has("identifiers")) {
@@ -64,13 +64,13 @@ public class DataService {
                 }
             }
 
-            // Step 3: Call KYC API (POST with ptyIds)
+            // Step 2: POST to KYC with ptyIds
             Map<String, List<String>> requestBody = new HashMap<>();
             requestBody.put("ptyIds", ptyIds);
 
             String kycResponseBody = webClient.post()
                     .uri(kycUrl)
-                    .body(Mono.just(requestBody), new TypeReference<Map<String, List<String>>>() {})
+                    .bodyValue(requestBody)
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
@@ -78,17 +78,16 @@ public class DataService {
             JsonNode kycRoot = mapper.readTree(kycResponseBody);
             JsonNode kycResults = kycRoot.path("results");
 
-            // Step 4: Index KYC by ptyId
             Map<String, JsonNode> kycMap = new HashMap<>();
-            for (JsonNode kyc : kycResults) {
-                JsonNode identifiersNode = kyc.path("identifiers");
-                if (identifiersNode.isArray() && identifiersNode.size() > 0) {
-                    Identifiers identifiers = mapper.convertValue(identifiersNode.get(0), Identifiers.class);
-                    kycMap.put(identifiers.getPtyId(), kyc.path("kycData"));
+            for (JsonNode result : kycResults) {
+                JsonNode ids = result.path("identifiers");
+                if (ids.isArray() && ids.size() > 0) {
+                    Identifiers identifiers = mapper.convertValue(ids.get(0), Identifiers.class);
+                    kycMap.put(identifiers.getPtyId(), result.path("kycData"));
                 }
             }
 
-            // Step 5: Merge each record
+            // Step 3: Merge FinanceCH and KYC
             for (JsonNode result : financeResultList) {
                 JsonNode entity = result.path("entity");
                 Identifiers identifiers = mapper.convertValue(entity.path("identifiers"), Identifiers.class);
@@ -97,7 +96,7 @@ public class DataService {
                 List<RadixData> radixList = Optional.ofNullable(result.path("radixData"))
                         .filter(JsonNode::isArray)
                         .map(arr -> StreamSupport.stream(arr.spliterator(), false)
-                                .map(r -> mapper.convertValue(r, RadixData.class))
+                                .map(node -> mapper.convertValue(node, RadixData.class))
                                 .collect(Collectors.toList()))
                         .orElse(Collections.emptyList());
 
@@ -123,10 +122,6 @@ public class DataService {
                             .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {
                             }))
                             .ifPresentOrElse(merged::setRiskIndustry, () -> merged.setRiskIndustry(null));
-                } else {
-                    merged.setKycSites(null);
-                    merged.setKycSegments(null);
-                    merged.setRiskIndustry(null);
                 }
 
                 mergedList.add(merged);
