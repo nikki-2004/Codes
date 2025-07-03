@@ -1,35 +1,119 @@
+package org.example.service;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.model.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
+
 @Service
-public class ApiService {
+public class DataService {
 
-    @Autowired
-    private RestTemplate restTemplate;
+    @Value("${api.financech.url}")
+    private String financeChUrl;
 
-    public List<Map<String, Object>> getAllMergedData() {
-        String usersUrl = "http://api1.com/users";
+    @Value("${api.kyc.url}")
+    private String kycUrl;
 
-        List<Map<String, Object>> userList = restTemplate.getForObject(usersUrl, List.class);
-        List<Map<String, Object>> mergedList = new ArrayList<>();
+    private final ObjectMapper mapper;
+    private final RestTemplate restTemplate;
 
-        if (userList == null) return mergedList;
+    public DataService(ObjectMapper mapper, RestTemplate restTemplate) {
+        this.mapper = mapper;
+        this.restTemplate = restTemplate;
+    }
 
-        for (Map<String, Object> userData : userList) {
-            Object idObj = userData.get("id");
-            if (idObj == null) continue;
+    public List<MergedEntity> getMergedEntities() {
+        List<MergedEntity> mergedList = new ArrayList<>();
+        try {
+            // Fetch API JSON response as String
+            String financeChJson = restTemplate.getForObject(financeChUrl, String.class);
+            String kycJson = restTemplate.getForObject(kycUrl, String.class);
 
-            Long userId = ((Number) idObj).longValue();
-            String addressUrl = "http://api2.com/addresses/" + userId;
+            JsonNode root1 = mapper.readTree(financeChJson);
+            JsonNode root2 = mapper.readTree(kycJson);
 
-            Map<String, Object> addressData = restTemplate.getForObject(addressUrl, Map.class);
+            JsonNode results1 = root1.path("results");
+            JsonNode results2 = root2.path("results");
 
-            Map<String, Object> merged = new HashMap<>();
-            merged.putAll(userData);        // dynamic fields from user
-            if (addressData != null) {
-                merged.putAll(addressData); // dynamic fields from address
-            }
+            StreamSupport.stream(results1.spliterator(), false)
+                    .map(result1 -> {
+                        JsonNode entityNode = result1.path("entity");
+                        if (entityNode.isMissingNode()) return null;
 
-            mergedList.add(merged);
-        }
+                        Identifiers file1Identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
 
-        return mergedList;
-    }
+                        // Parse radixData
+                        List<RadixData> radixList = Optional.ofNullable(result1.path("radixData"))
+                                .filter(JsonNode::isArray)
+                                .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                        .map(node -> mapper.convertValue(node, RadixData.class))
+                                        .collect(Collectors.toList()))
+                                .orElse(Collections.emptyList());
+
+                        // Match Identifiers in KYC JSON
+                        Optional<Identifiers> matchedIdentifiers = results2.findValues("identifiers").stream()
+                                .filter(array -> array.isArray() && array.size() > 0)
+                                .map(array -> mapper.convertValue(array.get(0), Identifiers.class))
+                                .filter(file2Identifiers -> file1Identifiers.getPtyId().equals(file2Identifiers.getPtyId()))
+                                .findFirst();
+
+                        return matchedIdentifiers.map(matchedIdentifier -> {
+                            MergedEntity merged = new MergedEntity();
+                            merged.setIdentifiers(file1Identifiers);
+                            merged.setRadixData(radixList);
+
+                            // Find matching result node in KYC
+                            Optional<JsonNode> matchingResult2 = StreamSupport.stream(results2.spliterator(), false)
+                                    .filter(r -> {
+                                        JsonNode idNode = r.get("identifiers");
+                                        return idNode != null && idNode.isArray() && idNode.size() > 0 &&
+                                                file1Identifiers.getPtyId().equals(
+                                                        mapper.convertValue(idNode.get(0), Identifiers.class).getPtyId());
+                                    }).findFirst();
+
+                            matchingResult2.map(r -> r.get("kycData")).ifPresentOrElse(kycData -> {
+                                // kycSites
+                                Optional.ofNullable(kycData.get("kycSites"))
+                                        .filter(JsonNode::isArray)
+                                        .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {
+                                        }))
+                                        .ifPresentOrElse(merged::setKycSites, () -> merged.setKycSites(null));
+
+                                // kycSegments
+                                Optional.ofNullable(kycData.get("kycSegment"))
+                                        .filter(JsonNode::isTextual)
+                                        .map(JsonNode::asText)
+                                        .ifPresentOrElse(merged::setKycSegments, () -> merged.setKycSegments(null));
+
+                                // riskIndustry
+                                Optional.ofNullable(kycData.get("riskIndustry"))
+                                        .filter(JsonNode::isArray)
+                                        .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {
+                                        }))
+                                        .ifPresentOrElse(merged::setRiskIndustry, () -> merged.setRiskIndustry(null));
+
+                            }, () -> {
+                                merged.setKycSites(null);
+                                merged.setKycSegments(null);
+                                merged.setRiskIndustry(null);
+                            });
+
+                            return merged;
+                        }).orElse(null);
+                    })
+                    .filter(Objects::nonNull)
+                    .forEach(mergedList::add);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return mergedList;
+    }
 }
