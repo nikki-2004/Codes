@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.example.model.*;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
@@ -21,6 +22,9 @@ public class DataService {
     @Value("${api.kyc.url}")
     private String kycUrl;
 
+    @Value("${api.token}")
+    private String apiToken;
+
     private final ObjectMapper mapper;
     private final RestTemplate restTemplate;
 
@@ -31,13 +35,25 @@ public class DataService {
 
     public List<MergedEntity> getMergedEntities() {
         List<MergedEntity> mergedList = new ArrayList<>();
-        try {
-            // Fetch API JSON response as String
-            String financeChJson = restTemplate.getForObject(financeChUrl, String.class);
-            String kycJson = restTemplate.getForObject(kycUrl, String.class);
 
-            JsonNode root1 = mapper.readTree(financeChJson);
-            JsonNode root2 = mapper.readTree(kycJson);
+        try {
+            // Prepare headers with Bearer token
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(apiToken); // sets Authorization: Bearer <token>
+
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+
+            // API calls with token
+            ResponseEntity<String> financeResponse = restTemplate.exchange(
+                    financeChUrl, HttpMethod.GET, entity, String.class);
+
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    kycUrl, HttpMethod.GET, entity, String.class);
+
+            // Parse JSON
+            JsonNode root1 = mapper.readTree(financeResponse.getBody());
+            JsonNode root2 = mapper.readTree(kycResponse.getBody());
 
             JsonNode results1 = root1.path("results");
             JsonNode results2 = root2.path("results");
@@ -49,7 +65,6 @@ public class DataService {
 
                         Identifiers file1Identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
 
-                        // Parse radixData
                         List<RadixData> radixList = Optional.ofNullable(result1.path("radixData"))
                                 .filter(JsonNode::isArray)
                                 .map(array -> StreamSupport.stream(array.spliterator(), false)
@@ -57,7 +72,6 @@ public class DataService {
                                         .collect(Collectors.toList()))
                                 .orElse(Collections.emptyList());
 
-                        // Match Identifiers in KYC JSON
                         Optional<Identifiers> matchedIdentifiers = results2.findValues("identifiers").stream()
                                 .filter(array -> array.isArray() && array.size() > 0)
                                 .map(array -> mapper.convertValue(array.get(0), Identifiers.class))
@@ -69,7 +83,6 @@ public class DataService {
                             merged.setIdentifiers(file1Identifiers);
                             merged.setRadixData(radixList);
 
-                            // Find matching result node in KYC
                             Optional<JsonNode> matchingResult2 = StreamSupport.stream(results2.spliterator(), false)
                                     .filter(r -> {
                                         JsonNode idNode = r.get("identifiers");
@@ -112,8 +125,10 @@ public class DataService {
                     .forEach(mergedList::add);
 
         } catch (Exception e) {
+            System.err.println("Error retrieving merged entities: " + e.getMessage());
             e.printStackTrace();
         }
+
         return mergedList;
     }
 }
