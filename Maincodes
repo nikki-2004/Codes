@@ -1,55 +1,35 @@
-package org.example.service;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.MergedEntity;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-
 @Service
-public class FinanceChService {
+public class ApiService {
 
-    @Value("${api.financech.url}")
-    private String financeChUrl;
+    @Autowired
+    private RestTemplate restTemplate;
 
-    @Value("${api.financech.token}")
-    private String financeChToken;
+    public List<Map<String, Object>> getAllMergedData() {
+        String usersUrl = "http://api1.com/users";
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper objectMapper;
+        List<Map<String, Object>> userList = restTemplate.getForObject(usersUrl, List.class);
+        List<Map<String, Object>> mergedList = new ArrayList<>();
 
-    public FinanceChService(RestTemplate restTemplate, ObjectMapper objectMapper) {
-        this.restTemplate = restTemplate;
-        this.objectMapper = objectMapper;
-    }
+        if (userList == null) return mergedList;
 
-    public MergedEntity fetchAndStoreFinanceData() {
-        try {
-            // Prepare header
-            HttpHeaders headers = new HttpHeaders();
-            String[] tokenParts = financeChToken.split(":", 2);
-            headers.set(tokenParts[0].trim(), tokenParts[1].trim());
+        for (Map<String, Object> userData : userList) {
+            Object idObj = userData.get("id");
+            if (idObj == null) continue;
 
-            HttpEntity<String> entity = new HttpEntity<>(headers);
+            Long userId = ((Number) idObj).longValue();
+            String addressUrl = "http://api2.com/addresses/" + userId;
 
-            // Call external API
-            ResponseEntity<String> response = restTemplate.exchange(
-                    financeChUrl,
-                    HttpMethod.GET,
-                    entity,
-                    String.class
-            );
+            Map<String, Object> addressData = restTemplate.getForObject(addressUrl, Map.class);
 
-            // Convert to JsonNode
-            JsonNode data = objectMapper.readTree(response.getBody());
-            MergedEntity mergedEntity = new MergedEntity();
-            mergedEntity.setFinanceData(data);
-            return mergedEntity;
+            Map<String, Object> merged = new HashMap<>();
+            merged.putAll(userData);        // dynamic fields from user
+            if (addressData != null) {
+                merged.putAll(addressData); // dynamic fields from address
+            }
 
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to fetch/parse API response", e);
-        }
-    }
+            mergedList.add(merged);
+        }
+
+        return mergedList;
+    }
 }
