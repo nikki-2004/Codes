@@ -1,10 +1,13 @@
-// === DataService.java ===
 package org.example.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.*;
+import org.example.model.Identifiers;
+import org.example.model.KycSites;
+import org.example.model.MergedEntity;
+import org.example.model.RadixData;
+import org.example.model.RiskIndustry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -17,6 +20,9 @@ import java.util.stream.StreamSupport;
 @Service
 public class DataService {
 
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper;
+
     @Value("${api.financech.url}")
     private String financeChUrl;
 
@@ -26,9 +32,6 @@ public class DataService {
     @Value("${api.token}")
     private String token;
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper mapper;
-
     public DataService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         this.mapper = new ObjectMapper();
@@ -37,25 +40,25 @@ public class DataService {
     public List<MergedEntity> getMergedEntities() {
         List<MergedEntity> mergedList = new ArrayList<>();
         try {
-            // Set headers with token
+            // Prepare headers with token
             HttpHeaders headers = new HttpHeaders();
-            headers.set("Authorization", "Bearer " + token);
-            headers.set("Accept", "application/json");
+            headers.setBearerAuth(token);
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            // FinanceCH API call
+            // --- Fetch FinanceCH data ---
             ResponseEntity<String> financeResponse = restTemplate.exchange(
                     financeChUrl, HttpMethod.GET, entity, String.class);
             JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
             JsonNode financeResults = financeRoot.path("results");
 
-            // KYC API call
+            // --- Fetch KYC data ---
             ResponseEntity<String> kycResponse = restTemplate.exchange(
                     kycUrl, HttpMethod.GET, entity, String.class);
             JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
             JsonNode kycResults = kycRoot.path("results");
 
-            // Map KYC results by ptyId
+            // Map KYC by ptyId
             Map<String, JsonNode> kycMap = new HashMap<>();
             for (JsonNode result : kycResults) {
                 JsonNode ids = result.path("identifiers");
@@ -65,7 +68,7 @@ public class DataService {
                 }
             }
 
-            // Process each FinanceCH result
+            // Loop over FinanceCH results
             for (JsonNode result : financeResults) {
                 JsonNode entityNode = result.path("entity");
                 if (entityNode.isMissingNode()) continue;
@@ -73,17 +76,18 @@ public class DataService {
                 Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
                 String ptyId = identifiers.getPtyId();
 
-                List<RadixData> radixList = Optional.ofNullable(result.path("radixData"))
+                List<RadixData> radixData = Optional.ofNullable(result.path("radixData"))
                         .filter(JsonNode::isArray)
-                        .map(arr -> StreamSupport.stream(arr.spliterator(), false)
+                        .map(array -> StreamSupport.stream(array.spliterator(), false)
                                 .map(node -> mapper.convertValue(node, RadixData.class))
                                 .collect(Collectors.toList()))
                         .orElse(Collections.emptyList());
 
                 MergedEntity merged = new MergedEntity();
                 merged.setIdentifiers(identifiers);
-                merged.setRadixData(radixList);
+                merged.setRadixData(radixData);
 
+                // Merge KYC fields
                 JsonNode kycData = kycMap.get(ptyId);
                 if (kycData != null) {
                     Optional.ofNullable(kycData.get("kycSites"))
@@ -104,6 +108,7 @@ public class DataService {
 
                 mergedList.add(merged);
             }
+
         } catch (Exception e) {
             System.err.println("Error retrieving merged entities: " + e.getMessage());
             e.printStackTrace();
