@@ -41,37 +41,32 @@ public class DataService {
         List<MergedEntity> mergedList = new ArrayList<>();
 
         try {
-            // Prepare headers with bearer token
+            // Prepare headers
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(token);
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
             HttpEntity<String> entity = new HttpEntity<>(headers);
 
-            // --- Fetch FinanceCH data ---
-            ResponseEntity<String> financeResponse = restTemplate.exchange(
-                    financeChUrl, HttpMethod.GET, entity, String.class);
-            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
-            JsonNode financeResults = financeRoot.path("results");
+            // Fetch FinanceCH
+            ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, entity, String.class);
+            JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
-            // --- Fetch KYC data ---
-            ResponseEntity<String> kycResponse = restTemplate.exchange(
-                    kycUrl, HttpMethod.GET, entity, String.class);
-            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
-            JsonNode kycResults = kycRoot.path("results");
+            // Fetch KYC
+            ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, entity, String.class);
+            JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
 
-            // Map result2 by ptyId
+            // Map KYC results by ptyId
             Map<String, JsonNode> kycMap = new HashMap<>();
             for (JsonNode result : kycResults) {
-                JsonNode result2 = result.path("result2");
-                JsonNode identifiersNode = result.path("identifiers");
-
-                if (identifiersNode.isArray() && identifiersNode.size() > 0) {
-                    Identifiers identifiers = mapper.convertValue(identifiersNode.get(0), Identifiers.class);
-                    kycMap.put(identifiers.getPtyId(), result2);
+                JsonNode ids = result.path("identifiers");
+                if (ids.isArray() && ids.size() > 0) {
+                    Identifiers identifiers = mapper.convertValue(ids.get(0), Identifiers.class);
+                    String ptyId = identifiers.getPtyId();
+                    kycMap.put(ptyId, result.path("kycData")); // get kycData node directly
                 }
             }
 
-            // Process each finance entity
+            // Loop through FinanceCH results
             for (JsonNode result : financeResults) {
                 JsonNode entityNode = result.path("entity");
                 if (entityNode.isMissingNode()) continue;
@@ -79,7 +74,7 @@ public class DataService {
                 Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
                 String ptyId = identifiers.getPtyId();
 
-                List<RadixData> radixDataList = Optional.ofNullable(result.path("radixData"))
+                List<RadixData> radixData = Optional.ofNullable(result.path("radixData"))
                         .filter(JsonNode::isArray)
                         .map(array -> StreamSupport.stream(array.spliterator(), false)
                                 .map(node -> mapper.convertValue(node, RadixData.class))
@@ -88,35 +83,29 @@ public class DataService {
 
                 MergedEntity merged = new MergedEntity();
                 merged.setIdentifiers(identifiers);
-                merged.setRadixData(radixDataList);
+                merged.setRadixData(radixData);
 
-                // Look up matching KYC result2
-                Optional.ofNullable(kycMap.get(ptyId))
-                        .map(node -> node.get("kycData"))
-                        .ifPresentOrElse(kycData -> {
-                            // kycSites
-                            Optional.ofNullable(kycData.get("kycSites"))
-                                    .filter(JsonNode::isArray)
-                                    .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
-                                    .ifPresentOrElse(merged::setKycSites, () -> merged.setKycSites(null));
+                // Merge with matching KYC if present
+                JsonNode kycData = kycMap.get(ptyId);
+                if (kycData != null) {
+                    // kycSites
+                    Optional.ofNullable(kycData.get("kycSites"))
+                            .filter(JsonNode::isArray)
+                            .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
+                            .ifPresent(merged::setKycSites);
 
-                            // kycSegment
-                            Optional.ofNullable(kycData.get("kycSegment"))
-                                    .filter(JsonNode::isTextual)
-                                    .map(JsonNode::asText)
-                                    .ifPresentOrElse(merged::setKycSegments, () -> merged.setKycSegments(null));
+                    // kycSegment
+                    Optional.ofNullable(kycData.get("kycSegment"))
+                            .filter(JsonNode::isTextual)
+                            .map(JsonNode::asText)
+                            .ifPresent(merged::setKycSegments);
 
-                            // riskIndustry
-                            Optional.ofNullable(kycData.get("riskIndustry"))
-                                    .filter(JsonNode::isArray)
-                                    .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
-                                    .ifPresentOrElse(merged::setRiskIndustry, () -> merged.setRiskIndustry(null));
-                        }, () -> {
-                            // If no match found, set nulls
-                            merged.setKycSites(null);
-                            merged.setKycSegments(null);
-                            merged.setRiskIndustry(null);
-                        });
+                    // riskIndustry
+                    Optional.ofNullable(kycData.get("riskIndustry"))
+                            .filter(JsonNode::isArray)
+                            .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
+                            .ifPresent(merged::setRiskIndustry);
+                }
 
                 mergedList.add(merged);
             }
