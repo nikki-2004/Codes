@@ -60,16 +60,13 @@ public class DataService {
             JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
             JsonNode kycResults = kycRoot.path("results");
 
-            // Build ptyId -> kycData map
+            // Build ptyId -> full kycResult map
             Map<String, JsonNode> kycMap = new HashMap<>();
             for (JsonNode kycResult : kycResults) {
                 JsonNode identifiersNode = kycResult.path("identifiers");
                 if (identifiersNode.isArray() && identifiersNode.size() > 0) {
                     Identifiers identifiers = mapper.convertValue(identifiersNode.get(0), Identifiers.class);
-                    JsonNode kycData = getFieldIgnoreCase(kycResult, "kycData");
-                    if (kycData != null) {
-                        kycMap.put(identifiers.getPtyId(), kycData);
-                    }
+                    kycMap.put(identifiers.getPtyId(), kycResult); // store full kycResult
                 }
             }
 
@@ -94,22 +91,23 @@ public class DataService {
                             .orElse(Collections.emptyList());
                     merged.setRadixData(radixDataList);
 
-                    JsonNode kycData = kycMap.get(ptyId);
+                    JsonNode fullKycResult = kycMap.get(ptyId);
+                    JsonNode kycData = getFieldIgnoreCase(fullKycResult, "kycData");
 
-                    // kycSites
+                    // kycSites (inside kycData)
                     Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
                             .filter(JsonNode::isArray)
                             .map(node -> mapper.convertValue(node, new TypeReference<List<KycSites>>() {}))
                             .ifPresent(merged::setKycSites);
 
-                    // kycSegment
-                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
+                    // kycSegment (directly inside fullKycResult)
+                    Optional.ofNullable(getFieldIgnoreCase(fullKycResult, "kycSegment"))
                             .filter(JsonNode::isTextual)
                             .map(JsonNode::asText)
                             .ifPresent(merged::setKycSegments);
 
-                    // riskIndustry
-                    Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
+                    // riskIndustry (directly inside fullKycResult)
+                    Optional.ofNullable(getFieldIgnoreCase(fullKycResult, "riskIndustry"))
                             .filter(JsonNode::isArray)
                             .map(node -> mapper.convertValue(node, new TypeReference<List<RiskIndustry>>() {}))
                             .ifPresent(merged::setRiskIndustry);
