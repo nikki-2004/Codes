@@ -1,72 +1,24 @@
-@Service
-public class DataService {
+private void fetchAuthToken() {
+    try {
+        System.out.println("🔗 Fetching token from: " + authTokenUrl);
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper mapper = new ObjectMapper();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
-    @Value("${auth.token.url}")
-    private String authTokenUrl;
+        MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+        formData.add("username", username);
+        formData.add("password", password);
 
-    // 🔐 Auto-stored token
-    private String token;
+        HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
+        ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
 
-    public DataService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-    }
+        JsonNode json = mapper.readTree(response.getBody());
+        this.token = json.path("token").asText(); // Adjust if field name differs
 
-    /**
-     * ✅ Fetches token from URL and stores it in `token` field
-     */
-    private void fetchAuthToken() {
-        try {
-            // You can change this to POST if needed
-            HttpHeaders headers = new HttpHeaders();
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+        System.out.println("✅ Token: " + this.token);
 
-            HttpEntity<Void> request = new HttpEntity<>(headers);
-            ResponseEntity<String> response = restTemplate.exchange(authTokenUrl, HttpMethod.GET, request, String.class);
-
-            System.out.println("🔐 Token Response Body: " + response.getBody());
-
-            JsonNode json = mapper.readTree(response.getBody());
-            this.token = json.path("token").asText(); // ✅ store the token value
-
-            System.out.println("✅ Token fetched and stored: " + this.token);
-
-        } catch (Exception e) {
-            throw new RuntimeException("❌ Failed to fetch token: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * ✅ Fetch merged entities using the stored token
-     */
-    public List<MergedEntity> getMergedEntities() {
-        List<MergedEntity> mergedList = new ArrayList<>();
-
-        try {
-            // Step 1: Get token first
-            fetchAuthToken(); // sets token
-
-            // Step 2: Use token in request
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(this.token); // ✅ use token here
-            headers.set("Accept", "*/*; version-gamma");
-
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            // Example fetch
-            String financeUrl = "https://your-api.com/v1/finance"; // replace with actual
-            ResponseEntity<String> response = restTemplate.exchange(financeUrl, HttpMethod.GET, request, String.class);
-
-            // parse response and build merged list here (dummy below)
-            System.out.println("✅ Data fetch success: " + response.getBody());
-
-        } catch (Exception e) {
-            System.err.println("❌ Error retrieving merged entities: " + e.getMessage());
-            e.printStackTrace();
-        }
-
-        return mergedList;
+    } catch (Exception e) {
+        throw new RuntimeException("❌ Failed to fetch token: " + e.getMessage(), e);
     }
 }
