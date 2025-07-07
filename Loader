@@ -1,20 +1,97 @@
-private String fetchAuthToken() {
-    try {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
+package org.example.service;
 
-        Map<String, String> body = new HashMap<>();
-        body.put("client_id", clientId);
-        body.put("client_secret", clientSecret);
-        body.put("grant_type", "client_credentials");
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.model.*;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
-        HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
+import java.util.*;
 
-        ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, entity, String.class);
-        JsonNode json = objectMapper.readTree(response.getBody());
+@Service
+public class DataService {
 
-        return json.path("access_token").asText(); // ← returned token
-    } catch (Exception e) {
-        throw new RuntimeException("Failed to fetch auth token: " + e.getMessage(), e);
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper = new ObjectMapper();
+
+    @Value("${api.financech.url}")
+    private String financeChUrl;
+
+    @Value("${api.kyc.url}")
+    private String kycUrl;
+
+    @Value("${auth.token.url}")
+    private String authTokenUrl;
+
+    @Value("${auth.client_id}")
+    private String clientId;
+
+    @Value("${auth.app_name}")
+    private String appName;
+
+    public DataService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    // ✅ STEP 1: Fetch token from auth API
+    private String fetchAuthToken() {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+
+            Map<String, String> body = new HashMap<>();
+            body.put("client_id", clientId);
+            body.put("app_name", appName);
+
+            HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+
+            ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
+
+            JsonNode json = mapper.readTree(response.getBody());
+
+            return json.path("access_token").asText();  // ✅ token key name
+        } catch (Exception e) {
+            throw new RuntimeException("❌ Failed to fetch token: " + e.getMessage(), e);
+        }
+    }
+
+    // ✅ STEP 2: Use token to get merged entities
+    public List<MergedEntity> getMergedEntities() {
+        List<MergedEntity> mergedList = new ArrayList<>();
+
+        try {
+            String token = fetchAuthToken(); // ✅ dynamically get token
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(token);
+            headers.set("Accept", "*/*; version-gamma");
+
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            // --- Call FinanceCH API
+            ResponseEntity<String> financeResponse = restTemplate.exchange(
+                    financeChUrl, HttpMethod.GET, request, String.class);
+
+            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
+            JsonNode financeResults = financeRoot.path("results");
+
+            // --- Call KYC API
+            ResponseEntity<String> kycResponse = restTemplate.exchange(
+                    kycUrl, HttpMethod.GET, request, String.class);
+
+            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
+            JsonNode kycResults = kycRoot.path("results");
+
+            // Now merge logic here ...
+            // (You can continue with your existing merge logic for identifiers, radixData, etc.)
+
+        } catch (Exception e) {
+            System.err.println("❌ Error retrieving merged entities: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedList;
     }
 }
