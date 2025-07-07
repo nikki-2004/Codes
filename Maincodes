@@ -1,25 +1,98 @@
-private String fetchAuthToken() {
-    try {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+package org.example.service;
 
-        // ✅ Body with username and password
-        Map<String, String> body = new HashMap<>();
-        body.put("username", username);
-        body.put("password", password);
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.model.MergedEntity;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.*;
+import org.springframework.stereotype.Service;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
+import org.springframework.web.client.RestTemplate;
 
-        HttpEntity<Map<String, String>> request = new HttpEntity<>(body, headers);
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
-        System.out.println("🔐 Sending token request to: " + authTokenUrl);
-        ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
+@Service
+public class DataService {
 
-        System.out.println("✅ Token response: " + response.getBody());
+    private final RestTemplate restTemplate;
+    private final ObjectMapper mapper = new ObjectMapper();
 
-        JsonNode json = mapper.readTree(response.getBody());
+    @Value("${auth.token.url}")
+    private String authTokenUrl;
 
-        return json.path("access_token").asText(); // 👈 confirm this key
-    } catch (Exception e) {
-        throw new RuntimeException("❌ Failed to fetch token: " + e.getMessage(), e);
+    @Value("${auth.username}")
+    private String username;
+
+    @Value("${auth.password}")
+    private String password;
+
+    public DataService(RestTemplate restTemplate) {
+        this.restTemplate = restTemplate;
+    }
+
+    /**
+     * ✅ Automatically fetches access token using username and password
+     */
+    private String fetchAuthToken() {
+        try {
+            // Set headers
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+
+            // Set form data
+            MultiValueMap<String, String> formData = new LinkedMultiValueMap<>();
+            formData.add("username", username);
+            formData.add("password", password);
+
+            // Prepare request
+            HttpEntity<MultiValueMap<String, String>> request = new HttpEntity<>(formData, headers);
+
+            // Send request
+            ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
+
+            // Debug response
+            System.out.println("✅ Token response: " + response.getBody());
+
+            // Parse access token
+            JsonNode json = mapper.readTree(response.getBody());
+            return json.path("access_token").asText(); // ✅ Adjust this if your token key is different
+
+        } catch (Exception e) {
+            throw new RuntimeException("❌ Failed to fetch token: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * ✅ Dummy merged entity fetcher using the token
+     */
+    public List<MergedEntity> getMergedEntities() {
+        List<MergedEntity> mergedList = new ArrayList<>();
+
+        try {
+            String token = fetchAuthToken(); // 🔐 Token fetched dynamically
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(token);
+            headers.set("Accept", "*/*; version-gamma");
+
+            HttpEntity<String> request = new HttpEntity<>(headers);
+
+            // TODO: Replace below with your real data-fetching logic
+            System.out.println("✅ Using token to fetch FinanceCH or KYC data...");
+            // Example:
+            // ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, request, String.class);
+
+            // ... parse response and populate mergedList here
+
+        } catch (Exception e) {
+            System.err.println("❌ Error retrieving merged entities: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return mergedList;
     }
 }
