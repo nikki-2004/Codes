@@ -1,20 +1,29 @@
 package org.example.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.MergedEntity;
+import org.example.model.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @Service
 public class DataService {
 
     private final RestTemplate restTemplate;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper;
+
+    @Value("${api.financech.url}")
+    private String financeChUrl;
+
+    @Value("${api.kyc.url}")
+    private String kycUrl;
 
     @Value("${auth.token.url}")
     private String authTokenUrl;
@@ -22,19 +31,16 @@ public class DataService {
     @Value("${auth.basic.auth}")
     private String basicAuth;
 
-    // 🔐 Token will be stored here
     private String token;
 
     public DataService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
+        this.mapper = new ObjectMapper();
     }
 
-    /**
-     * 🔐 Fetch token using client_credentials with Basic Auth header
-     */
     private void fetchAuthToken() {
         try {
-            System.out.println("🔗 Fetching token from: " + authTokenUrl);
+            System.out.println("Fetching token from: " + authTokenUrl);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
@@ -42,54 +48,119 @@ public class DataService {
             headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
 
             HttpEntity<String> request = new HttpEntity<>("", headers);
-
             ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
-            System.out.println("✅ Token response: " + response.getBody());
 
             JsonNode json = mapper.readTree(response.getBody());
+            this.token = json.path("access_token").asText();
 
-            this.token = json.path("access_token").asText();  // Store the access_token
-
-            if (this.token == null || this.token.isBlank()) {
+            if (token == null || token.isBlank()) {
                 throw new RuntimeException("Token not found in response");
             }
 
-            System.out.println("✅ Token fetched and stored: " + this.token);
-
+            System.out.println("Token fetched and stored: " + token);
         } catch (Exception e) {
-            throw new RuntimeException("❌ Failed to fetch token: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to fetch token: " + e.getMessage(), e);
         }
     }
 
-    /**
-     * ✅ Example method that uses the fetched token
-     */
     public List<MergedEntity> getMergedEntities() {
         List<MergedEntity> mergedList = new ArrayList<>();
 
         try {
-            // 1. Fetch and store token
             fetchAuthToken();
 
-            // 2. Use token for downstream API call (e.g., FinanceCH)
             HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(this.token);  // Set Authorization: Bearer <token>
-            headers.set("Accept", "*/*; version-gamma");
-
+            headers.setBearerAuth(this.token);
+            headers.add("Accept", "*/*;version=gamma");
             HttpEntity<String> request = new HttpEntity<>(headers);
 
-            String financeUrl = "https://api-int.staging.echonet/ce-third-parties/v2/batch-export?type=FinanceCH";
-            ResponseEntity<String> response = restTemplate.exchange(financeUrl, HttpMethod.GET, request, String.class);
+            // Fetch FinanceCH data
+            ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
+            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
+            JsonNode financeResults = financeRoot.path("results");
 
-            System.out.println("📦 Fetched finance data: " + response.getBody());
+            // Fetch KYC data
+            ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, request, String.class);
+            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
+            JsonNode kycResults = kycRoot.path("results");
 
-            // TODO: Parse and populate mergedList from response JSON
+            Map<String, JsonNode> kycMap = new HashMap<>();
+
+            // Map KYC data by PtyId
+            for (JsonNode kycResult : kycResults) {
+                JsonNode identifiersNode = kycResult.path("identifiers");
+                if (identifiersNode.isArray() && identifiersNode.size() > 0) {
+                    Identifiers identifiers = mapper.convertValue(identifiersNode.get(0), Identifiers.class);
+                    JsonNode kycData = getFieldIgnoreCase(kycResult, "kycData");
+                    if (kycData != null) {
+                        kycMap.put(identifiers.getPtyId(), kycData);
+                    }
+                }
+            }
+
+            // Merge data
+            for (JsonNode financeResult : financeResults) {
+                JsonNode entityNode = financeResult.path("entity");
+                if (entityNode.isMissingNode()) continue;
+
+                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
+                String ptyId = identifiers.getPtyId();
+
+                if (kycMap.containsKey(ptyId)) {
+                    MergedEntity merged = new MergedEntity();
+                    merged.setIdentifiers(identifiers);
+
+                    // Radix Data
+                    List<RadixData> radixDataList = Optional.ofNullable(financeResult.path("radixData"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                    .map(node -> mapper.convertValue(node, RadixData.class))
+                                    .collect(Collectors.toList()))
+                            .orElse(Collections.emptyList());
+                    merged.setRadixData(radixDataList);
+
+                    JsonNode kycData = kycMap.get(ptyId);
+
+                    // KYC Segments
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
+                            .filter(JsonNode::isTextual)
+                            .map(JsonNode::asText)
+                            .ifPresent(merged::setKycSegments);
+
+                    // Risk Industry
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
+                            .ifPresent(merged::setRiskIndustry);
+
+                    // KYC Sites
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
+                            .ifPresent(merged::setKycSites);
+
+                    mergedList.add(merged);
+                }
+            }
 
         } catch (Exception e) {
-            System.err.println("❌ Error retrieving merged entities: " + e.getMessage());
+            System.err.println("Error retrieving merged entities: " + e.getMessage());
             e.printStackTrace();
         }
 
         return mergedList;
+    }
+
+    private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
+        if (node == null || !node.isObject()) return null;
+
+        Iterator<String> fieldNames = node.fieldNames();
+        while (fieldNames.hasNext()) {
+            String key = fieldNames.next();
+            if (key.equalsIgnoreCase(fieldName)) {
+                return node.get(key);
+            }
+        }
+        return null;
     }
 }
