@@ -64,7 +64,9 @@ public class DataService {
         }
     }
 
-    public void printAllMatchedPtyIdsDetails() {
+    public List<MergedEntity> getAllMatchedPtyIdEntities() {
+        List<MergedEntity> matchedEntities = new ArrayList<>();
+
         try {
             fetchAuthToken();
 
@@ -81,7 +83,7 @@ public class DataService {
             ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, request, String.class);
             JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
 
-            // Build KYC Map (ptyId → kycData)
+            // Build KYC Map
             Map<String, JsonNode> kycMap = new HashMap<>();
             for (JsonNode kyc : kycResults) {
                 JsonNode ids = kyc.path("identifiers");
@@ -94,7 +96,7 @@ public class DataService {
                 }
             }
 
-            // Loop through all ptyIds from FinanceCH
+            // Loop through FinanceCH and collect matched entries
             for (JsonNode finance : financeResults) {
                 JsonNode entity = finance.path("entity");
                 if (entity.isMissingNode()) continue;
@@ -103,10 +105,10 @@ public class DataService {
                 String ptyId = identifiers.getPtyId();
 
                 JsonNode kycData = kycMap.get(ptyId);
-                if (kycData == null) continue; // Just in case
+                if (kycData == null) continue; // No match
 
-                System.out.println("✅ Match for ptyId: " + ptyId);
-                System.out.println("Identifiers: " + identifiers);
+                MergedEntity merged = new MergedEntity();
+                merged.setIdentifiers(identifiers);
 
                 // RadixData
                 List<RadixData> radixData = Optional.ofNullable(finance.path("radixData"))
@@ -115,43 +117,38 @@ public class DataService {
                                 .map(n -> mapper.convertValue(n, RadixData.class))
                                 .collect(Collectors.toList()))
                         .orElse(Collections.emptyList());
-                System.out.println("RadixData:");
-                radixData.forEach(rd -> System.out.println(" - " + rd));
+                merged.setRadixData(radixData);
 
                 // KYC Segment
                 Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
                         .filter(JsonNode::isTextual)
                         .map(JsonNode::asText)
-                        .ifPresent(s -> System.out.println("KYC Segment: " + s));
+                        .ifPresent(merged::setKycSegments);
 
                 // KYC Sites
                 Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
                         .filter(JsonNode::isArray)
                         .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
-                        .ifPresent(sites -> {
-                            System.out.println("KYC Sites:");
-                            sites.forEach(site -> System.out.println(" - " + site));
-                        });
+                        .ifPresent(merged::setKycSites);
 
                 // Risk Industry
                 Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
                         .filter(JsonNode::isArray)
                         .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
-                        .ifPresent(industries -> {
-                            System.out.println("Risk Industry:");
-                            industries.forEach(ind -> System.out.println(" - " + ind));
-                        });
+                        .ifPresent(merged::setRiskIndustry);
 
-                System.out.println("--------------------------------------------------");
+                matchedEntities.add(merged);
             }
 
         } catch (Exception e) {
-            System.err.println("Error while printing all matched ptyIds: " + e.getMessage());
+            System.err.println("Error while collecting matched ptyIds: " + e.getMessage());
             e.printStackTrace();
+            throw new RuntimeException("Failed to collect matched ptyIds", e);
         }
+
+        return matchedEntities;
     }
 
-    // Case-insensitive field lookup
     private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
         if (node == null || !node.isObject()) return null;
         Iterator<String> fields = node.fieldNames();
