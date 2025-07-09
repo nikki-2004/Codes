@@ -40,8 +40,6 @@ public class DataService {
 
     private void fetchAuthToken() {
         try {
-            System.out.println("Fetching token from: " + authTokenUrl);
-
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Authorization", basicAuth);
@@ -61,15 +59,12 @@ public class DataService {
                 throw new RuntimeException("Token not found in response");
             }
 
-            System.out.println("Token fetched and stored: " + token);
         } catch (Exception e) {
             throw new RuntimeException("Failed to fetch token: " + e.getMessage(), e);
         }
     }
 
-    public List<MergedEntity> getMatchedMergedEntities() {
-        List<MergedEntity> matchedList = new ArrayList<>();
-
+    public void printAllMatchedPtyIdsDetails() {
         try {
             fetchAuthToken();
 
@@ -80,95 +75,90 @@ public class DataService {
 
             // Fetch FinanceCH
             ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
-            if (!financeResponse.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("FinanceCH API returned error: " + financeResponse.getStatusCode());
-            }
-            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
-            JsonNode financeResults = financeRoot.path("results");
+            JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
             // Fetch KYC
             ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, request, String.class);
-            if (!kycResponse.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("KYC API returned error: " + kycResponse.getStatusCode());
-            }
-            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
-            JsonNode kycResults = kycRoot.path("results");
+            JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
 
-            // Build KYC map (ptyId → kycData)
+            // Build KYC Map (ptyId → kycData)
             Map<String, JsonNode> kycMap = new HashMap<>();
-            for (JsonNode kycResult : kycResults) {
-                JsonNode identifiersNode = kycResult.path("identifiers");
-                if (identifiersNode.isArray() && identifiersNode.size() > 0) {
-                    Identifiers identifiers = mapper.convertValue(identifiersNode.get(0), Identifiers.class);
-                    JsonNode kycData = getFieldIgnoreCase(kycResult, "kycData");
+            for (JsonNode kyc : kycResults) {
+                JsonNode ids = kyc.path("identifiers");
+                if (ids.isArray() && ids.size() > 0) {
+                    Identifiers identifiers = mapper.convertValue(ids.get(0), Identifiers.class);
+                    JsonNode kycData = getFieldIgnoreCase(kyc, "kycData");
                     if (kycData != null) {
                         kycMap.put(identifiers.getPtyId(), kycData);
                     }
                 }
             }
 
-            // Match ptyId from FinanceCH with KYC
-            for (JsonNode financeResult : financeResults) {
-                JsonNode entityNode = financeResult.path("entity");
-                if (entityNode.isMissingNode()) continue;
+            // Loop through all ptyIds from FinanceCH
+            for (JsonNode finance : financeResults) {
+                JsonNode entity = finance.path("entity");
+                if (entity.isMissingNode()) continue;
 
-                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
+                Identifiers identifiers = mapper.convertValue(entity.path("identifiers"), Identifiers.class);
                 String ptyId = identifiers.getPtyId();
 
-                if (!kycMap.containsKey(ptyId)) continue;
+                JsonNode kycData = kycMap.get(ptyId);
+                if (kycData == null) continue; // Just in case
 
-                // ✅ Build MergedEntity for matched ptyId
-                MergedEntity merged = new MergedEntity();
-                merged.setIdentifiers(identifiers);
+                System.out.println("✅ Match for ptyId: " + ptyId);
+                System.out.println("Identifiers: " + identifiers);
 
                 // RadixData
-                List<RadixData> radixDataList = Optional.ofNullable(financeResult.path("radixData"))
+                List<RadixData> radixData = Optional.ofNullable(finance.path("radixData"))
                         .filter(JsonNode::isArray)
-                        .map(array -> StreamSupport.stream(array.spliterator(), false)
-                                .map(node -> mapper.convertValue(node, RadixData.class))
+                        .map(arr -> StreamSupport.stream(arr.spliterator(), false)
+                                .map(n -> mapper.convertValue(n, RadixData.class))
                                 .collect(Collectors.toList()))
                         .orElse(Collections.emptyList());
-                merged.setRadixData(radixDataList);
+                System.out.println("RadixData:");
+                radixData.forEach(rd -> System.out.println(" - " + rd));
 
-                // KYC fields
-                JsonNode kycData = kycMap.get(ptyId);
-
+                // KYC Segment
                 Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
                         .filter(JsonNode::isTextual)
                         .map(JsonNode::asText)
-                        .ifPresent(merged::setKycSegments);
+                        .ifPresent(s -> System.out.println("KYC Segment: " + s));
 
-                Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
-                        .filter(JsonNode::isArray)
-                        .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
-                        .ifPresent(merged::setRiskIndustry);
-
+                // KYC Sites
                 Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
                         .filter(JsonNode::isArray)
                         .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
-                        .ifPresent(merged::setKycSites);
+                        .ifPresent(sites -> {
+                            System.out.println("KYC Sites:");
+                            sites.forEach(site -> System.out.println(" - " + site));
+                        });
 
-                matchedList.add(merged);
+                // Risk Industry
+                Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
+                        .filter(JsonNode::isArray)
+                        .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
+                        .ifPresent(industries -> {
+                            System.out.println("Risk Industry:");
+                            industries.forEach(ind -> System.out.println(" - " + ind));
+                        });
 
-                System.out.println("✅ Matched and extracted for ptyId: " + ptyId);
+                System.out.println("--------------------------------------------------");
             }
 
         } catch (Exception e) {
-            System.err.println("Error while extracting matched data: " + e.getMessage());
+            System.err.println("Error while printing all matched ptyIds: " + e.getMessage());
             e.printStackTrace();
         }
-
-        return matchedList;
     }
 
-    // Case-insensitive field finder
+    // Case-insensitive field lookup
     private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
         if (node == null || !node.isObject()) return null;
-        Iterator<String> fieldNames = node.fieldNames();
-        while (fieldNames.hasNext()) {
-            String key = fieldNames.next();
-            if (key.equalsIgnoreCase(fieldName)) {
-                return node.get(key);
+        Iterator<String> fields = node.fieldNames();
+        while (fields.hasNext()) {
+            String f = fields.next();
+            if (f.equalsIgnoreCase(fieldName)) {
+                return node.get(f);
             }
         }
         return null;
