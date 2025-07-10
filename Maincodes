@@ -1,16 +1,17 @@
 package org.example.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.Identifiers;
+import org.example.model.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.StreamSupport;
 
 @Service
 public class DataService {
@@ -37,38 +38,38 @@ public class DataService {
         this.mapper = new ObjectMapper();
     }
 
-    // 🔐 Step 1: Fetch the access token
+    // 🔐 Get token
     private void fetchAuthToken() {
         try {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
             headers.set("Authorization", basicAuth);
-            headers.setAccept(MediaType.parseMediaTypes("application/json"));
+            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
 
             HttpEntity<String> request = new HttpEntity<>("", headers);
-
             ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
 
             if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("❌ Token API failed: " + response.getStatusCode());
+                throw new RuntimeException("Token API failed: " + response.getStatusCode());
             }
 
             JsonNode json = mapper.readTree(response.getBody());
             this.token = json.path("access_token").asText();
 
             if (token == null || token.isBlank()) {
-                throw new RuntimeException("❌ Access token not found in response");
+                throw new RuntimeException("Token missing in response");
             }
 
             System.out.println("✅ Token fetched successfully.");
-
         } catch (Exception e) {
-            throw new RuntimeException("❌ Error fetching token: " + e.getMessage(), e);
+            throw new RuntimeException("❌ Token fetch failed: " + e.getMessage(), e);
         }
     }
 
-    // ✅ Step 2: Loop over every FinanceCH ptyId and check if it's in KYC
-    public void checkAllPtyIdMatches() {
+    // ✅ Merge all matched ptyIds and print unmatched too
+    public List<MergedEntity> getMatchedAndLoggedEntities() {
+        List<MergedEntity> matchedList = new ArrayList<>();
+
         try {
             fetchAuthToken();
 
@@ -78,56 +79,94 @@ public class DataService {
 
             HttpEntity<String> request = new HttpEntity<>(headers);
 
-            // Step 3: Fetch FinanceCH data
+            // 🌐 FinanceCH
             ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
             if (!financeResponse.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("❌ FinanceCH API failed: " + financeResponse.getStatusCode());
+                throw new RuntimeException("FinanceCH API failed: " + financeResponse.getStatusCode());
             }
             JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
-            // Step 4: Fetch KYC data
+            // 🌐 KYC
             ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, request, String.class);
             if (!kycResponse.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("❌ KYC API failed: " + kycResponse.getStatusCode());
+                throw new RuntimeException("KYC API failed: " + kycResponse.getStatusCode());
             }
             JsonNode kycResults = mapper.readTree(kycResponse.getBody()).path("results");
 
-            // Step 5: Extract all KYC ptyIds into a map
-            Map<String, Boolean> kycPtyIdMap = new HashMap<>();
+            // 📌 Build KYC map by ptyId
+            Map<String, JsonNode> kycMap = new HashMap<>();
             for (JsonNode kyc : kycResults) {
                 JsonNode ids = kyc.path("identifiers");
                 if (ids.isArray() && ids.size() > 0) {
-                    Identifiers kycIdentifiers = mapper.convertValue(ids.get(0), Identifiers.class);
-                    if (kycIdentifiers.getPtyId() != null) {
-                        kycPtyIdMap.put(kycIdentifiers.getPtyId(), true);
+                    Identifiers id = mapper.convertValue(ids.get(0), Identifiers.class);
+                    JsonNode kycData = getFieldIgnoreCase(kyc, "kycData");
+                    if (kycData != null && id.getPtyId() != null) {
+                        kycMap.put(id.getPtyId(), kycData);
                     }
                 }
             }
 
-            // Step 6: Loop through FinanceCH and check matches
+            // 🔁 Loop through all ptyIds in Finance
             for (JsonNode finance : financeResults) {
                 JsonNode entityNode = finance.path("entity");
                 if (entityNode.isMissingNode()) continue;
 
-                Identifiers financeIdentifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
-                String ptyId = financeIdentifiers.getPtyId();
+                Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
+                String ptyId = identifiers.getPtyId();
 
                 if (ptyId == null || ptyId.isBlank()) continue;
 
-                if (kycPtyIdMap.containsKey(ptyId)) {
+                if (kycMap.containsKey(ptyId)) {
                     System.out.println("✅ Matched: ptyId = " + ptyId);
+
+                    JsonNode kycData = kycMap.get(ptyId);
+                    MergedEntity merged = new MergedEntity();
+                    merged.setIdentifiers(identifiers);
+
+                    // 📦 RadixData
+                    List<RadixData> radixList = Optional.ofNullable(finance.path("radixData"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                    .map(node -> mapper.convertValue(node, RadixData.class))
+                                    .collect(Collectors.toList()))
+                            .orElse(Collections.emptyList());
+                    merged.setRadixData(radixList);
+
+                    // 📌 KycSegment
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
+                            .filter(JsonNode::isTextual)
+                            .map(JsonNode::asText)
+                            .ifPresent(merged::setKycSegments);
+
+                    // 📌 KycSites
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
+                            .ifPresent(merged::setKycSites);
+
+                    // 📌 RiskIndustry
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
+                            .ifPresent(merged::setRiskIndustry);
+
+                    matchedList.add(merged);
                 } else {
                     System.out.println("❌ Not Found in KYC: ptyId = " + ptyId);
                 }
             }
 
+            System.out.println("✅ Total matched: " + matchedList.size());
+
         } catch (Exception e) {
-            System.err.println("❌ Error: " + e.getMessage());
+            System.err.println("❌ Error processing ptyIds: " + e.getMessage());
             e.printStackTrace();
         }
+
+        return matchedList;
     }
 
-    // Optional helper for case-insensitive field access
+    // Case-insensitive JSON field lookup
     private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
         if (node == null || !node.isObject()) return null;
         Iterator<String> it = node.fieldNames();
