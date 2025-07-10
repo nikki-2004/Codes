@@ -23,7 +23,7 @@ public class DataService {
     private String financeChUrl;
 
     @Value("${api.kyc.single.url}")
-    private String kycSingleUrl; // expects e.g., https://kyc/api?ptyId=
+    private String kycSingleUrl; // expects: "https://.../kyc?ptyId="
 
     @Value("${auth.token.url}")
     private String authTokenUrl;
@@ -38,6 +38,7 @@ public class DataService {
         this.mapper = new ObjectMapper();
     }
 
+    // 🔐 Fetch token
     private void fetchAuthToken() {
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -56,7 +57,7 @@ public class DataService {
             this.token = json.path("access_token").asText();
 
             if (token == null || token.isBlank()) {
-                throw new RuntimeException("Token missing in response");
+                throw new RuntimeException("❌ Token missing in response");
             }
 
             System.out.println("✅ Token fetched successfully.");
@@ -65,8 +66,9 @@ public class DataService {
         }
     }
 
-    public List<MergedEntity> fetchAndMergePerPtyId() {
-        List<MergedEntity> mergedList = new ArrayList<>();
+    // ✅ Final method to merge using per-ptyId KYC call
+    public List<MergedEntity> fetchAndMergeByPtyIdLoop() {
+        List<MergedEntity> mergedEntities = new ArrayList<>();
 
         try {
             fetchAuthToken();
@@ -74,10 +76,9 @@ public class DataService {
             HttpHeaders headers = new HttpHeaders();
             headers.setBearerAuth(this.token);
             headers.add("Accept", "*/*;version=gamma");
-
             HttpEntity<String> request = new HttpEntity<>(headers);
 
-            // 🌐 Fetch FinanceCH data
+            // 🌐 Get all finance data
             ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
             JsonNode financeResults = mapper.readTree(financeResponse.getBody()).path("results");
 
@@ -87,74 +88,82 @@ public class DataService {
 
                 Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
                 String ptyId = identifiers.getPtyId();
+
                 if (ptyId == null || ptyId.isBlank()) continue;
 
-                // 🌐 Fetch KYC for this ptyId
-                String kycUrl = kycSingleUrl + ptyId;
-                ResponseEntity<String> kycResponse = restTemplate.exchange(kycUrl, HttpMethod.GET, request, String.class);
+                // 🌐 Build dynamic KYC URL for this ptyId
+                String finalKycUrl = kycSingleUrl + ptyId;
 
-                if (!kycResponse.getStatusCode().is2xxSuccessful() || kycResponse.getBody() == null || kycResponse.getBody().isBlank()) {
-                    System.out.println("❌ No KYC data found for ptyId: " + ptyId);
-                    continue;
+                try {
+                    ResponseEntity<String> kycResponse = restTemplate.exchange(finalKycUrl, HttpMethod.GET, request, String.class);
+
+                    if (!kycResponse.getStatusCode().is2xxSuccessful() || kycResponse.getBody() == null || kycResponse.getBody().isBlank()) {
+                        System.out.println("❌ No KYC data for ptyId: " + ptyId);
+                        continue;
+                    }
+
+                    JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
+                    JsonNode identifiersArray = kycRoot.path("identifiers");
+                    JsonNode kycData = getFieldIgnoreCase(kycRoot, "kycData");
+
+                    if (kycData == null || identifiersArray.isMissingNode() || identifiersArray.isEmpty()) {
+                        System.out.println("❌ Invalid or missing KYC data for ptyId: " + ptyId);
+                        continue;
+                    }
+
+                    System.out.println("✅ Merging ptyId: " + ptyId);
+                    MergedEntity merged = new MergedEntity();
+                    merged.setIdentifiers(identifiers);
+
+                    // 📦 RadixData
+                    List<RadixData> radixList = Optional.ofNullable(finance.path("radixData"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> StreamSupport.stream(array.spliterator(), false)
+                                    .map(node -> mapper.convertValue(node, RadixData.class))
+                                    .collect(Collectors.toList()))
+                            .orElse(Collections.emptyList());
+                    merged.setRadixData(radixList);
+
+                    // 📌 KYC Segment
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
+                            .filter(JsonNode::isTextual)
+                            .map(JsonNode::asText)
+                            .ifPresent(merged::setKycSegments);
+
+                    // 📌 KYC Sites
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
+                            .ifPresent(merged::setKycSites);
+
+                    // 📌 Risk Industry
+                    Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
+                            .filter(JsonNode::isArray)
+                            .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
+                            .ifPresent(merged::setRiskIndustry);
+
+                    mergedEntities.add(merged);
+
+                } catch (Exception kycEx) {
+                    System.err.println("❌ KYC call failed for ptyId: " + ptyId + " | " + kycEx.getMessage());
                 }
-
-                JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
-                JsonNode identifiersArray = kycRoot.path("identifiers");
-                JsonNode kycData = getFieldIgnoreCase(kycRoot, "kycData");
-
-                if (kycData == null || identifiersArray.isMissingNode() || identifiersArray.isEmpty()) {
-                    System.out.println("❌ Invalid or missing KYC data for ptyId: " + ptyId);
-                    continue;
-                }
-
-                System.out.println("✅ Matched and merging: ptyId = " + ptyId);
-                MergedEntity merged = new MergedEntity();
-                merged.setIdentifiers(identifiers);
-
-                // 🔗 RadixData
-                List<RadixData> radixList = Optional.ofNullable(finance.path("radixData"))
-                        .filter(JsonNode::isArray)
-                        .map(array -> StreamSupport.stream(array.spliterator(), false)
-                                .map(node -> mapper.convertValue(node, RadixData.class))
-                                .collect(Collectors.toList()))
-                        .orElse(Collections.emptyList());
-                merged.setRadixData(radixList);
-
-                // 📌 kycSegment
-                Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
-                        .filter(JsonNode::isTextual)
-                        .map(JsonNode::asText)
-                        .ifPresent(merged::setKycSegments);
-
-                // 📌 kycSites
-                Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
-                        .filter(JsonNode::isArray)
-                        .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
-                        .ifPresent(merged::setKycSites);
-
-                // 📌 riskIndustry
-                Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
-                        .filter(JsonNode::isArray)
-                        .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
-                        .ifPresent(merged::setRiskIndustry);
-
-                mergedList.add(merged);
             }
 
-            System.out.println("✅ Total Merged Entities: " + mergedList.size());
+            System.out.println("✅ Total merged entities: " + mergedEntities.size());
+
         } catch (Exception e) {
-            System.err.println("❌ Error during merging: " + e.getMessage());
+            System.err.println("❌ Overall error: " + e.getMessage());
             e.printStackTrace();
         }
 
-        return mergedList;
+        return mergedEntities;
     }
 
     private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
         if (node == null || !node.isObject()) return null;
-        Iterator<String> fieldNames = node.fieldNames();
-        while (fieldNames.hasNext()) {
-            String key = fieldNames.next();
+        Iterator<String> it = node.fieldNames();
+        while (it.hasNext()) {
+            String key = it.next();
             if (key.equalsIgnoreCase(fieldName)) {
                 return node.get(key);
             }
