@@ -1,197 +1,93 @@
-package org.example.service;
+PHASE 1 Basics
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.*;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
+Creating a Spring Boot project using Spring Initializr
 
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
+Maven and Gradle build tools
 
-@Service
-public class DataService {
+Annotations
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper mapper;
+Profiles and environment-specific configurations
 
-    @Value("${api.financech.url}")
-    private String financeChUrl;
+@getmapping, @postmapping, @putmapping, @deletemapping
 
-    @Value("${api.kyc.url}")
-    private String kycUrl;
+Handling path variables and request parameters
 
-    @Value("${auth.token.url}")
-    private String authTokenUrl;
+Setting up database connection (h2, mysql, postgresql)
 
-    @Value("${auth.basic.auth}")
-    private String basicAuth;
+Using jparepository and crudrepository
 
-    private String token;
+Introduction to spring boot devtools
 
-    public DataService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-        this.mapper = new ObjectMapper();
-    }
+Enabling hot reloading
 
-    private void fetchAuthToken() {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("Authorization", basicAuth);
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
+Spring batch, scheduling, and cron expressions
 
-            HttpEntity<String> request = new HttpEntity<>("", headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
+PHASE 2 - Intermediate
 
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("Auth token API returned error: " + response.getStatusCode());
-            }
+Using @controlleradvice and @exceptionhandler
 
-            JsonNode json = mapper.readTree(response.getBody());
-            this.token = json.path("access_token").asText();
+Custom error responses and exception classes
 
-            if (token == null || token.isBlank()) {
-                throw new RuntimeException("Token not found in response");
-            }
+Global exception handling
 
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to fetch token: " + e.getMessage(), e);
-        }
-    }
+Basic authentication
 
-    public List<MergedEntity> getMergedEntities() {
-        List<MergedEntity> mergedList = new ArrayList<>();
+Configuring security for APIs
 
-        try {
-            fetchAuthToken();
+Implementing JWT (JSON Web Tokens) for stateless authentication
+Introduction to HATEOAS
 
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(this.token);
-            headers.add("Accept", "*/*;version=gamma");
-            HttpEntity<String> request = new HttpEntity<>(headers);
+Versioning rest apis (uri, parameter, headers)
 
-            ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
-            if (!financeResponse.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("FinanceCH API returned error: " + financeResponse.getStatusCode());
-            }
+Unit testing with JUnit and Mockito
 
-            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
-            JsonNode financeResults = financeRoot.path("results");
+Writing integration tests with Spring Boot Test
 
-            for (JsonNode financeResult : financeResults) {
-                try {
-                    JsonNode entityNode = financeResult.path("entity");
-                    if (entityNode.isMissingNode() || entityNode.isNull()) continue;
+Testing RESTful services with mockmvc
 
-                    Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
-                    if (identifiers == null || identifiers.getPtyId() == null) continue;
+Exploring actuator endpoints
 
-                    String ptyId = identifiers.getPtyId();
-                    String dynamicKycUrl = kycUrl + "/" + ptyId;
+Creating custom health indicators
 
-                    ResponseEntity<String> kycResponse;
-                    try {
-                        kycResponse = restTemplate.exchange(dynamicKycUrl, HttpMethod.GET, request, String.class);
-                        if (!kycResponse.getStatusCode().is2xxSuccessful()) continue;
-                    } catch (Exception ex) {
-                        System.err.println("Failed to fetch KYC for ptyId " + ptyId + ": " + ex.getMessage());
-                        continue;
-                    }
+PHASE 3 - Advanced
 
-                    JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
-                    JsonNode kycResults = kycRoot.path("results");
+Using @profile annotation
 
-                    if (!kycResults.isArray() || kycResults.size() == 0) continue;
+Configuring environment-specific beans
 
-                    JsonNode kycResult = kycResults.get(0);
-                    if (kycResult == null) continue;
+Switching profiles for different environments
 
-                    MergedEntity merged = new MergedEntity();
-                    merged.setIdentifiers(identifiers);
+Setting up a Spring Cloud project
 
-                    List<RadixData> radixDataList = Optional.ofNullable(financeResult.path("radixData"))
-                            .filter(JsonNode::isArray)
-                            .map(array -> StreamSupport.stream(array.spliterator(), false)
-                                    .map(node -> {
-                                        try {
-                                            return mapper.convertValue(node, RadixData.class);
-                                        } catch (IllegalArgumentException e) {
-                                            System.err.println("Error parsing RadixData: " + e.getMessage());
-                                            return null;
-                                        }
-                                    })
-                                    .filter(Objects::nonNull)
-                                    .collect(Collectors.toList()))
-                            .orElse(Collections.emptyList());
+Key components of Spring Cloud
 
-                    merged.setRadixData(radixDataList);
+Setting up the Eureka server
 
-                    JsonNode kycData = getFieldIgnoreCase(kycResult, "kycData");
+Registering microservices with Eureka
 
-                    if (kycData != null) {
-                        Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
-                                .filter(JsonNode::isTextual)
-                                .map(JsonNode::asText)
-                                .ifPresent(merged::setKycSegments);
+Service discovery in action
 
-                        Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
-                                .filter(JsonNode::isArray)
-                                .map(array -> {
-                                    try {
-                                        return mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {});
-                                    } catch (IllegalArgumentException e) {
-                                        System.err.println("Error parsing riskIndustry: " + e.getMessage());
-                                        return Collections.<RiskIndustry>emptyList();
-                                    }
-                                })
-                                .ifPresent(merged::setRiskIndustry);
+Introduction to api gateway
 
-                        Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
-                                .filter(JsonNode::isArray)
-                                .map(array -> {
-                                    try {
-                                        return mapper.convertValue(array, new TypeReference<List<KycSites>>() {});
-                                    } catch (IllegalArgumentException e) {
-                                        System.err.println("Error parsing kycSites: " + e.getMessage());
-                                        return Collections.<KycSites>emptyList();
-                                    }
-                                })
-                                .ifPresent(merged::setKycSites);
-                    }
+Setting up Spring Cloud Gateway
 
-                    mergedList.add(merged);
-                } catch (Exception innerEx) {
-                    System.err.println("Error merging record: " + innerEx.getMessage());
-                    innerEx.printStackTrace();
-                }
-            }
+Configuring routes and filters
 
-        } catch (Exception e) {
-            System.err.println("Critical error during merging: " + e.getMessage());
-            e.printStackTrace();
-            throw new RuntimeException("Aborting: " + e.getMessage(), e);
-        }
+Setting up Spring Cloud Config server
 
-        mergedList.forEach(m -> System.out.println("Merged Entity: " + m));
-        return mergedList;
-    }
+Managing configuration in a centralized repository
 
-    private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
-        if (node == null || !node.isObject()) return null;
+Configuring Spring Boot applications to use the config server
 
-        Iterator<String> fieldNames = node.fieldNames();
-        while (fieldNames.hasNext()) {
-            String key = fieldNames.next();
-            if (key.equalsIgnoreCase(fieldName)) {
-                return node.get(key);
-            }
-        }
-        return null;
-    }
-}
+PHASE 4 - Microservices
+Introduction to inter-service communication
 
+Using resttemplate for synchronous communication
+
+Using feign client for simplified service calls
+
+Setting up resilience4j
+
+Configuring circuit breakers, retry in microservices
+
+Introduction to distributed tracing
