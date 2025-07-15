@@ -1,164 +1,76 @@
-package org.example.service;
-
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.example.model.*;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.*;
-import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
-
-import java.util.*;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.StreamSupport;
 
-@Service
-public class DataService {
+public void exportToCsv(List<MergedEntity> mergedEntities, String filePath) {
+    try (FileWriter writer = new FileWriter(filePath)) {
 
-    private final RestTemplate restTemplate;
-    private final ObjectMapper mapper;
+        // Header
+        writer.write("CRS CODE;Reg Address;Reg Address Country;Site BNPP;Site Country;Site Status;KYC Segment;RIC\n");
 
-    @Value("${api.financech.url}")
-    private String financeChUrl;
+        for (MergedEntity entity : mergedEntities) {
+            StringBuilder line = new StringBuilder();
 
-    @Value("${api.kyc.url}")
-    private String kycUrl;
+            // CRS CODE
+            String crsCode = Optional.ofNullable(entity.getIdentifiers())
+                    .map(Identifiers::getCrdsCode).orElse("");
+            line.append(crsCode).append(";");
 
-    @Value("${auth.token.url}")
-    private String authTokenUrl;
-
-    @Value("${auth.basic.auth}")
-    private String basicAuth;
-
-    private String token;
-
-    public DataService(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
-        this.mapper = new ObjectMapper();
-    }
-
-    private void fetchAuthToken() {
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-            headers.set("Authorization", basicAuth);
-            headers.setAccept(Collections.singletonList(MediaType.APPLICATION_JSON));
-
-            HttpEntity<String> request = new HttpEntity<>("", headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(authTokenUrl, request, String.class);
-
-            if (!response.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("Auth token API returned error: " + response.getStatusCode());
+            // Reg Address (Line1 + Line2 + City + State + Zipcode)
+            RegistrationAddress regAddr = entity.getRegistrationAddress();
+            String fullAddress = "";
+            String country = "";
+            if (regAddr != null) {
+                fullAddress = String.join(" ",
+                        Optional.ofNullable(regAddr.getLine1()).orElse(""),
+                        Optional.ofNullable(regAddr.getLine2()).orElse(""),
+                        Optional.ofNullable(regAddr.getCity()).orElse(""),
+                        Optional.ofNullable(regAddr.getState()).orElse(""),
+                        Optional.ofNullable(regAddr.getZipcode()).orElse("")
+                ).trim();
+                country = Optional.ofNullable(regAddr.getCountry()).orElse("");
             }
+            line.append(fullAddress).append(";");
+            line.append(country).append(";");
 
-            JsonNode json = mapper.readTree(response.getBody());
-            this.token = json.path("access_token").asText();
-
-            if (token == null || token.isBlank()) {
-                throw new RuntimeException("Token not found in response");
+            // KYC Sites (print only the first site)
+            List<KycSites> sites = entity.getKycSites();
+            String siteBnpP = "", siteCountry = "", siteStatus = "";
+            if (sites != null && !sites.isEmpty()) {
+                KycSites site = sites.get(0);
+                siteBnpP = Optional.ofNullable(site.getSiteBnpP()).orElse("");
+                siteCountry = Optional.ofNullable(site.getSiteCountry()).orElse("");
+                siteStatus = Optional.ofNullable(site.getSiteStatus()).orElse("");
             }
+            line.append(siteBnpP).append(";");
+            line.append(siteCountry).append(";");
+            line.append(siteStatus).append(";");
 
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to fetch token: " + e.getMessage(), e);
-        }
-    }
+            // KYC Segment
+            String segment = Optional.ofNullable(entity.getKycSegments()).orElse("");
+            line.append(segment).append(";");
 
-    public List<MergedEntity> getMergedEntities() {
-        List<MergedEntity> mergedList = new ArrayList<>();
-
-        try {
-            fetchAuthToken();
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(this.token);
-            headers.add("Accept", "*/*;version=gamma");
-            HttpEntity<String> request = new HttpEntity<>(headers);
-
-            ResponseEntity<String> financeResponse = restTemplate.exchange(financeChUrl, HttpMethod.GET, request, String.class);
-            if (!financeResponse.getStatusCode().is2xxSuccessful()) {
-                throw new RuntimeException("FinanceCH API returned error: " + financeResponse.getStatusCode());
+            // RIC (CODE-DESCRIPTION, joined with '|')
+            String ric = "";
+            List<RiskIndustry> risks = entity.getRiskIndustry();
+            if (risks != null && !risks.isEmpty()) {
+                ric = risks.stream()
+                        .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
+                        .collect(Collectors.joining("|"));
             }
+            line.append(ric).append("\n");
 
-            JsonNode financeRoot = mapper.readTree(financeResponse.getBody());
-            JsonNode financeResults = financeRoot.path("results");
-
-            for (JsonNode financeResult : financeResults) {
-                try {
-                    JsonNode entityNode = financeResult.path("entity");
-                    if (entityNode.isMissingNode()) continue;
-
-                    Identifiers identifiers = mapper.convertValue(entityNode.path("identifiers"), Identifiers.class);
-                    String ptyId = identifiers.getPtyId();
-
-                    MergedEntity merged = new MergedEntity();
-                    merged.setIdentifiers(identifiers);
-
-                    List<RadixData> radixDataList = Optional.ofNullable(financeResult.path("radixData"))
-                            .filter(JsonNode::isArray)
-                            .map(array -> StreamSupport.stream(array.spliterator(), false)
-                                    .map(node -> mapper.convertValue(node, RadixData.class))
-                                    .collect(Collectors.toList()))
-                            .orElse(Collections.emptyList());
-                    merged.setRadixData(radixDataList);
-
-                    try {
-                        String dynamicKycUrl = kycUrl + "?ptyId=" + ptyId;
-                        ResponseEntity<String> kycResponse = restTemplate.exchange(dynamicKycUrl, HttpMethod.GET, request, String.class);
-
-                        if (kycResponse.getStatusCode().is2xxSuccessful()) {
-                            JsonNode kycRoot = mapper.readTree(kycResponse.getBody());
-                            JsonNode kycResults = kycRoot.path("results");
-
-                            if (kycResults.isArray() && kycResults.size() > 0) {
-                                JsonNode kycResult = kycResults.get(0);
-                                JsonNode kycData = getFieldIgnoreCase(kycResult, "kycData");
-
-                                if (kycData != null) {
-                                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSegment"))
-                                            .filter(JsonNode::isTextual)
-                                            .map(JsonNode::asText)
-                                            .ifPresent(merged::setKycSegments);
-
-                                    Optional.ofNullable(getFieldIgnoreCase(kycData, "kycSites"))
-                                            .filter(JsonNode::isArray)
-                                            .map(array -> mapper.convertValue(array, new TypeReference<List<KycSites>>() {}))
-                                            .ifPresent(merged::setKycSites);
-
-                                    Optional.ofNullable(getFieldIgnoreCase(kycData, "riskIndustry"))
-                                            .filter(JsonNode::isArray)
-                                            .map(array -> mapper.convertValue(array, new TypeReference<List<RiskIndustry>>() {}))
-                                            .ifPresent(merged::setRiskIndustry);
-                                }
-                            }
-                        }
-                    } catch (Exception ignore) {
-                        // Leave KYC fields null if not matched
-                    }
-
-                    mergedList.add(merged);
-                } catch (Exception ex) {
-                    System.err.println("Skipping invalid FinanceCH record: " + ex.getMessage());
-                }
-            }
-
-        } catch (Exception e) {
-            throw new RuntimeException("Failed during merging: " + e.getMessage(), e);
+            // Write line
+            writer.write(line.toString());
         }
 
-        return mergedList;
-    }
+        writer.flush();
+        System.out.println("CSV export successful: " + filePath);
 
-    private JsonNode getFieldIgnoreCase(JsonNode node, String fieldName) {
-        if (node == null || !node.isObject()) return null;
-
-        Iterator<String> fieldNames = node.fieldNames();
-        while (fieldNames.hasNext()) {
-            String key = fieldNames.next();
-            if (key.equalsIgnoreCase(fieldName)) {
-                return node.get(key);
-            }
-        }
-        return null;
+    } catch (IOException e) {
+        e.printStackTrace();
+        throw new RuntimeException("Error writing CSV: " + e.getMessage(), e);
     }
 }
