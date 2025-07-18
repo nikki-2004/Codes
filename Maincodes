@@ -1,41 +1,31 @@
-package org.example.util;
+package org.example.controllem; // ✅ Make sure this package is correct
 
-import org.example.model.*;
-import org.example.repository.ExportDataRepository;
-import org.springframework.stereotype.Component;
+import org.example.model.MergedEntity;
+import org.example.service.DataService;
+import org.example.util.CsvExportUtil;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
-@Component
-public class CsvExportUtil {
+@RestController
+public class DataController {
 
-    private final ExportDataRepository exportDataRepository;
+    private final DataService dataService;
 
-    public CsvExportUtil(ExportDataRepository exportDataRepository) {
-        this.exportDataRepository = exportDataRepository;
+    // ✅ Constructor Injection
+    public DataController(DataService dataService) {
+        this.dataService = dataService;
     }
 
-    public void saveToDatabase(List<MergedEntity> mergedEntities) {
-        for (MergedEntity entity : mergedEntities) {
-            ExportData exportData = new ExportData();
+    // ✅ This endpoint will trigger CSV export
+    @GetMapping("/export")
+    public String getAllMergedEntities() {
+        List<MergedEntity> mergedEntities = dataService.getMergedEntities();
 
-            exportData.setCrsCode(entity.getCrsCode());
-            exportData.setRegAddress(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getFullAddress() : null);
-            exportData.setRegCountry(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getCountry() : null);
+        // ✅ Make sure this path exists on your machine
+        CsvExportUtil.exportToCsv(mergedEntities, "C:/output/merged_report.csv");
 
-            if (entity.getKycSites() != null && !entity.getKycSites().isEmpty()) {
-                KycSite site = entity.getKycSites().get(0);
-                exportData.setSiteBnpp(site.getSiteEntity());
-                exportData.setSiteCountry(site.getSiteCountry());
-                exportData.setSiteStatus(site.getSiteStatus());
-            }
-
-            exportData.setKycSegment(entity.getKycSegment());
-            exportData.setRic(entity.getRic());
-
-            exportDataRepository.save(exportData);
-        }
-
-        System.out.println(">>> Data saved to DB.");
+        return "CSV exported successfully to C:/output/merged_report.csv";
     }
 }
