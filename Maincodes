@@ -1,25 +1,68 @@
-package org.example.model;
+package org.example.util;
 
-import jakarta.persistence.*;
-import lombok.*;
+import org.example.model.*;
+import org.example.repository.ExportDataRepository;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
-@Entity
-@Table(name = "export_data")
-@Data
-@NoArgsConstructor
-@AllArgsConstructor
-public class ExportData {
+public class CsvExportUtil {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    private Long id;
+    private final ExportDataRepository exportDataRepository;
 
-    private String crsCode;
-    private String regAddress;
-    private String regCountry;
-    private String siteBnpp;
-    private String siteCountry;
-    private String siteStatus;
-    private String kycSegment;
-    private String ric;
+    public CsvExportUtil(ExportDataRepository exportDataRepository) {
+        this.exportDataRepository = exportDataRepository;
+    }
+
+    public void saveToDatabase(List<MergedEntity> mergedEntities) {
+        for (MergedEntity entity : mergedEntities) {
+
+            // CRS Code
+            String crsCode = Optional.ofNullable(entity.getIdentifiers())
+                    .map(Identifiers::getCrdsCode)
+                    .orElse("");
+
+            // Address
+            RegistrationAddress regAddr = entity.getRegistrationAddress();
+            String fullAddress = "", country = "";
+            if (regAddr != null) {
+                fullAddress = String.join(" ",
+                        Optional.ofNullable(regAddr.getLine1()).orElse(""),
+                        Optional.ofNullable(regAddr.getLine2()).orElse(""),
+                        Optional.ofNullable(regAddr.getCity()).orElse(""),
+                        Optional.ofNullable(regAddr.getState()).orElse(""),
+                        Optional.ofNullable(regAddr.getZipCode()).orElse("")
+                ).trim();
+                country = Optional.ofNullable(regAddr.getCountry()).orElse("");
+            }
+
+            // KYC Sites (first)
+            List<KycSites> sites = entity.getKycSites();
+            String siteBnpp = "", siteCountry = "", siteStatus = "";
+            if (sites != null && !sites.isEmpty()) {
+                KycSites site = sites.get(0);
+                siteBnpp = Optional.ofNullable(site.getSiteBnpP()).orElse("");
+                siteCountry = Optional.ofNullable(site.getSiteCountry()).orElse("");
+                siteStatus = Optional.ofNullable(site.getSiteStatus()).orElse("");
+            }
+
+            // KYC Segment
+            String segment = Optional.ofNullable(entity.getKycSegments()).orElse("");
+
+            // RIC
+            String ric = "";
+            List<RiskIndustry> risks = entity.getRiskIndustry();
+            if (risks != null && !risks.isEmpty()) {
+                ric = risks.stream()
+                        .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
+                        .collect(Collectors.joining("|"));
+            }
+
+            // Save to DB
+            ExportData row = new ExportData(null, crsCode, fullAddress, country, siteBnpp, siteCountry, siteStatus, segment, ric);
+            exportDataRepository.save(row);
+        }
+
+        System.out.println("Data successfully saved to H2 database.");
+    }
 }
