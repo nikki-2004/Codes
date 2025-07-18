@@ -1,12 +1,25 @@
+package org.example.model;
 
-CREATE TABLE export_data (
-    id IDENTITY PRIMARY KEY,
-    crs_code VARCHAR(255),
-    reg_address VARCHAR(1000),
-    reg_country VARCHAR(255),
-    site_bnpp VARCHAR(255),
-    site_country VARCHAR(255),
-    site_status VARCHAR(255),
-    kyc_segment VARCHAR(255),
-    ric VARCHAR(2000)
-);
+import jakarta.persistence.*;
+import lombok.*;
+
+@Entity
+@Table(name = "export_data")
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class ExportData {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String crsCode;
+    private String regAddress;
+    private String regCountry;
+    private String siteBnpp;
+    private String siteCountry;
+    private String siteStatus;
+    private String kycSegment;
+    private String ric;
+}
