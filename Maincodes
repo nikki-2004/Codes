@@ -1,68 +1,40 @@
-package org.example.util;
+package org.example.controller;
 
-import org.example.model.*;
+import jakarta.annotation.PostConstruct;
+import org.example.model.ExportData;
+import org.example.model.MergedEntity;
 import org.example.repository.ExportDataRepository;
+import org.example.service.MergedEntityService;
+import org.example.util.CsvExportUtil;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.GetMapping;
+
 import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
-public class CsvExportUtil {
+@Controller
+public class ExportDataController {
 
-    private final ExportDataRepository exportDataRepository;
+    @Autowired
+    private ExportDataRepository exportDataRepository;
 
-    public CsvExportUtil(ExportDataRepository exportDataRepository) {
-        this.exportDataRepository = exportDataRepository;
+    @Autowired
+    private MergedEntityService mergedEntityService;
+
+    // Step 1: Insert data at app start (once)
+    @PostConstruct
+    public void insertMergedEntities() {
+        List<MergedEntity> mergedEntityList = mergedEntityService.getMergedEntityList();
+        CsvExportUtil util = new CsvExportUtil(exportDataRepository);
+        util.saveToDatabase(mergedEntityList);
     }
 
-    public void saveToDatabase(List<MergedEntity> mergedEntities) {
-        for (MergedEntity entity : mergedEntities) {
-
-            // CRS Code
-            String crsCode = Optional.ofNullable(entity.getIdentifiers())
-                    .map(Identifiers::getCrdsCode)
-                    .orElse("");
-
-            // Address
-            RegistrationAddress regAddr = entity.getRegistrationAddress();
-            String fullAddress = "", country = "";
-            if (regAddr != null) {
-                fullAddress = String.join(" ",
-                        Optional.ofNullable(regAddr.getLine1()).orElse(""),
-                        Optional.ofNullable(regAddr.getLine2()).orElse(""),
-                        Optional.ofNullable(regAddr.getCity()).orElse(""),
-                        Optional.ofNullable(regAddr.getState()).orElse(""),
-                        Optional.ofNullable(regAddr.getZipCode()).orElse("")
-                ).trim();
-                country = Optional.ofNullable(regAddr.getCountry()).orElse("");
-            }
-
-            // KYC Sites (first)
-            List<KycSites> sites = entity.getKycSites();
-            String siteBnpp = "", siteCountry = "", siteStatus = "";
-            if (sites != null && !sites.isEmpty()) {
-                KycSites site = sites.get(0);
-                siteBnpp = Optional.ofNullable(site.getSiteBnpP()).orElse("");
-                siteCountry = Optional.ofNullable(site.getSiteCountry()).orElse("");
-                siteStatus = Optional.ofNullable(site.getSiteStatus()).orElse("");
-            }
-
-            // KYC Segment
-            String segment = Optional.ofNullable(entity.getKycSegments()).orElse("");
-
-            // RIC
-            String ric = "";
-            List<RiskIndustry> risks = entity.getRiskIndustry();
-            if (risks != null && !risks.isEmpty()) {
-                ric = risks.stream()
-                        .map(r -> r.getRiskIndustryCode() + "-" + r.getRiskIndustryDescription())
-                        .collect(Collectors.joining("|"));
-            }
-
-            // Save to DB
-            ExportData row = new ExportData(null, crsCode, fullAddress, country, siteBnpp, siteCountry, siteStatus, segment, ric);
-            exportDataRepository.save(row);
-        }
-
-        System.out.println("Data successfully saved to H2 database.");
+    // Step 2: Show table in browser
+    @GetMapping("/export-data")
+    public String showExportData(Model model) {
+        List<ExportData> exportDataList = exportDataRepository.findAll();
+        model.addAttribute("exportDataList", exportDataList);
+        return "export-data"; // maps to export-data.html in templates
     }
 }
