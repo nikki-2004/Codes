@@ -1,40 +1,50 @@
-package org.example.controller;
-
-import jakarta.annotation.PostConstruct;
-import org.example.model.ExportData;
-import org.example.model.MergedEntity;
-import org.example.repository.ExportDataRepository;
-import org.example.service.MergedEntityService;
-import org.example.util.CsvExportUtil;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-
-import java.util.List;
-
-@Controller
-public class ExportDataController {
-
-    @Autowired
-    private ExportDataRepository exportDataRepository;
-
-    @Autowired
-    private MergedEntityService mergedEntityService;
-
-    // Step 1: Insert data at app start (once)
-    @PostConstruct
-    public void insertMergedEntities() {
-        List<MergedEntity> mergedEntityList = mergedEntityService.getMergedEntityList();
-        CsvExportUtil util = new CsvExportUtil(exportDataRepository);
-        util.saveToDatabase(mergedEntityList);
-    }
-
-    // Step 2: Show table in browser
-    @GetMapping("/export-data")
-    public String showExportData(Model model) {
-        List<ExportData> exportDataList = exportDataRepository.findAll();
-        model.addAttribute("exportDataList", exportDataList);
-        return "export-data"; // maps to export-data.html in templates
-    }
-}
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Exported Data</title>
+    <style>
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #999;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+    </style>
+</head>
+<body>
+    <h2>Exported Data Table</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>CRS Code</th>
+                <th>Reg Address</th>
+                <th>Reg Country</th>
+                <th>Site BNPP</th>
+                <th>Site Country</th>
+                <th>Site Status</th>
+                <th>KYC Segment</th>
+                <th>RIC</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr th:each="data : ${exportDataList}">
+                <td th:text="${data.crsCode}">-</td>
+                <td th:text="${data.regAddress}">-</td>
+                <td th:text="${data.regCountry}">-</td>
+                <td th:text="${data.siteBnpp}">-</td>
+                <td th:text="${data.siteCountry}">-</td>
+                <td th:text="${data.siteStatus}">-</td>
+                <td th:text="${data.kycSegment}">-</td>
+                <td th:text="${data.ric}">-</td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+</html>
