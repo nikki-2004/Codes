@@ -1,20 +1,55 @@
-package org.example.controller;
+package org.example.service;
 
+import jakarta.annotation.PostConstruct;
 import org.example.model.ReportData;
 import org.example.repository.ReportRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.util.ArrayList;
 import java.util.List;
 
-@RestController
-@RequestMapping("/report")
-public class ReportController {
+@Service
+public class ReportService {
 
     @Autowired
     private ReportRepository reportRepository;
 
-    @GetMapping("/all")
+    private static final String FILE_PATH = "C:/your/path/yourfile.csv"; // Update path here
+
+    @PostConstruct
+    public void loadDataFromCsv() {
+        try (BufferedReader br = new BufferedReader(new FileReader(FILE_PATH))) {
+            String line;
+            boolean isHeader = true;
+
+            while ((line = br.readLine()) != null) {
+                if (isHeader) {
+                    isHeader = false;
+                    continue;
+                }
+
+                String[] values = line.split(";", -1); // -1 to include trailing empty fields
+
+                ReportData data = new ReportData();
+                data.setCrsCode(values.length > 0 ? values[0] : null);
+                data.setRegistrationAddress(values.length > 1 ? values[1] : null);
+                data.setRegAddressCountry(values.length > 2 ? values[2] : null);
+                data.setSiteBnpp(values.length > 3 ? values[3] : null);
+                data.setSiteCountry(values.length > 4 ? values[4] : null);
+                data.setSiteStatus(values.length > 5 ? values[5] : null);
+                data.setKycSegment(values.length > 6 ? values[6] : null);
+                data.setRicCodeDesc(values.length > 7 ? values[7] : null);
+
+                reportRepository.save(data);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     public List<ReportData> getAllReports() {
         return reportRepository.findAll();
     }
