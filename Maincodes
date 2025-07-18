@@ -1,9 +1,7 @@
 package org.example.util;
 
-import org.example.model.ExportData;
-import org.example.model.MergedEntity;
+import org.example.model.*;
 import org.example.repository.ExportDataRepository;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -11,24 +9,33 @@ import java.util.List;
 @Component
 public class CsvExportUtil {
 
-    @Autowired
-    private ExportDataRepository exportDataRepository;
+    private final ExportDataRepository exportDataRepository;
+
+    public CsvExportUtil(ExportDataRepository exportDataRepository) {
+        this.exportDataRepository = exportDataRepository;
+    }
 
     public void saveToDatabase(List<MergedEntity> mergedEntities) {
-        System.out.println(">>> Saving to DB...");
         for (MergedEntity entity : mergedEntities) {
-            ExportData data = new ExportData();
-            data.setCrsCode(entity.getIdentifiers().getCrsCode());
-            data.setRegAddress(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getFullAddress() : null);
-            data.setRegCountry(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getCountry() : null);
-            data.setSiteBnpp(entity.getKycSites().isEmpty() ? null : entity.getKycSites().get(0).getSiteEntity());
-            data.setSiteCountry(entity.getKycSites().isEmpty() ? null : entity.getKycSites().get(0).getSiteCountry());
-            data.setSiteStatus(entity.getKycSites().isEmpty() ? null : entity.getKycSites().get(0).getSiteStatus());
-            data.setKycSegment(entity.getKycSegments().isEmpty() ? null : entity.getKycSegments().get(0).getKycSegment());
-            data.setRic(entity.getRadixData().isEmpty() ? null : entity.getRadixData().get(0).getRic());
+            ExportData exportData = new ExportData();
 
-            exportDataRepository.save(data);
+            exportData.setCrsCode(entity.getCrsCode());
+            exportData.setRegAddress(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getFullAddress() : null);
+            exportData.setRegCountry(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getCountry() : null);
+
+            if (entity.getKycSites() != null && !entity.getKycSites().isEmpty()) {
+                KycSite site = entity.getKycSites().get(0);
+                exportData.setSiteBnpp(site.getSiteEntity());
+                exportData.setSiteCountry(site.getSiteCountry());
+                exportData.setSiteStatus(site.getSiteStatus());
+            }
+
+            exportData.setKycSegment(entity.getKycSegment());
+            exportData.setRic(entity.getRic());
+
+            exportDataRepository.save(exportData);
         }
-        System.out.println(">>> Data saved to H2.");
+
+        System.out.println(">>> Data saved to DB.");
     }
 }
