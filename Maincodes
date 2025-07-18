@@ -1,24 +1,40 @@
-package org.example.controller;
-
-import org.example.model.ReportData;
-import org.example.repository.ReportDataRepository;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.GetMapping;
-
-import java.util.List;
-
-@Controller
-public class ReportController {
-
-    @Autowired
-    private ReportDataRepository repository;
-
-    @GetMapping("/report")
-    public String showReport(Model model) {
-        List<ReportData> list = repository.findAll();
-        model.addAttribute("reportList", list);
-        return "report"; // maps to report.html
-    }
-}
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>CSV Report Table</title>
+    <style>
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #aaa; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+    </style>
+</head>
+<body>
+<h2>CSV Report Data</h2>
+<table>
+    <thead>
+    <tr>
+        <th>CRSCODE</th>
+        <th>Reg Address</th>
+        <th>Reg Address Country</th>
+        <th>Site BNPP</th>
+        <th>Site Country</th>
+        <th>Site Status</th>
+        <th>KYC Segment</th>
+        <th>RIC (Code - Desc)</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="data : ${reportList}">
+        <td th:text="${data.crsCode}"></td>
+        <td th:text="${data.registrationAddress}"></td>
+        <td th:text="${data.regAddressCountry}"></td>
+        <td th:text="${data.siteBnpp}"></td>
+        <td th:text="${data.siteCountry}"></td>
+        <td th:text="${data.siteStatus}"></td>
+        <td th:text="${data.kycSegment}"></td>
+        <td th:text="${data.ricCodeDesc}"></td>
+    </tr>
+    </tbody>
+</table>
+</body>
+</html>
