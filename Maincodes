@@ -1,45 +1,50 @@
 package org.example.service;
 
-import com.opencsv.CSVReader;
 import org.example.model.ReportData;
 import org.example.repository.ReportRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
-import java.io.FileReader;
-import java.util.List;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 
 @Service
-public class CsvImportService {
+public class ReportService {
 
-    @Autowired
-    private ReportRepository reportRepository;
+    @Autowired
+    private ReportRepository reportRepository;
 
-    @PostConstruct
-    public void importCsvData() {
-        try (CSVReader reader = new CSVReader(new FileReader("C:/your/path/yourfile.csv"))) {
-            List<String[]> rows = reader.readAll();
+    @PostConstruct
+    public void loadCsvData() {
+        String filePath = "C:/output/merged_report.csv"; // update path accordingly
 
-            for (String[] row : rows) {
-                // Skip header
-                if (row[0].equalsIgnoreCase("CRSCODE")) continue;
+        try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(filePath), StandardCharsets.UTF_8))) {
+            String line;
+            boolean isHeader = true;
 
-                ReportData data = new ReportData();
-                data.setCrsCode(row[0]);
-                data.setRegistrationAddress(row[1]);
-                data.setRegAddressCountry(row[2]);
-                data.setSiteBnpp(row[3]);
-                data.setSiteCountry(row.length > 4 ? row[4] : null);
-                data.setSiteStatus(row.length > 5 ? row[5] : null);
-                data.setKycSegment(row.length > 6 ? row[6] : null);
-                data.setRicCodeDesc(row.length > 7 ? row[7] : null);
+            while ((line = br.readLine()) != null) {
+                if (isHeader) { // skip header
+                    isHeader = false;
+                    continue;
+                }
 
-                reportRepository.save(data);
-            }
+                String[] fields = line.split(",", -1); // keep empty columns too
 
-        } catch (Exception e) {
-            e.printStackTrace(); // Optional: use proper logger
-        }
-    }
+                ReportData data = new ReportData();
+                data.setCrsCode(fields.length > 0 ? fields[0].trim() : null);
+                data.setRegistrationAddress(fields.length > 1 ? fields[1].trim() : null);
+                data.setRegAddressCountry(fields.length > 2 ? fields[2].trim() : null);
+                data.setSiteBnpp(fields.length > 3 ? fields[3].trim() : null);
+                data.setSiteCountry(fields.length > 4 ? fields[4].trim() : null);
+                data.setSiteStatus(fields.length > 5 ? fields[5].trim() : null);
+                data.setKycSegment(fields.length > 6 ? fields[6].trim() : null);
+                data.setRicCodeDesc(fields.length > 7 ? fields[7].trim() : null);
+
+                reportRepository.save(data);
+            }
+        } catch (IOException e) {
+            e.printStackTrace(); // Replace with proper logging if needed
+        }
+    }
 }
