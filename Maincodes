@@ -1,31 +1,50 @@
-package org.example.controllem; // ✅ Make sure this package is correct
+package org.example.service;
 
-import org.example.model.MergedEntity;
-import org.example.service.DataService;
-import org.example.util.CsvExportUtil;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.example.model.ReportData;
+import org.example.repository.ReportDataRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
-import java.util.List;
+import jakarta.annotation.PostConstruct;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
-@RestController
-public class DataController {
+@Service
+public class CsvLoaderService {
 
-    private final DataService dataService;
+    @Autowired
+    private ReportDataRepository repository;
 
-    // ✅ Constructor Injection
-    public DataController(DataService dataService) {
-        this.dataService = dataService;
-    }
+    @PostConstruct
+    public void loadCsvData() {
+        String filePath = "C:/output/merged_report.csv"; // adjust path
+        try (BufferedReader reader = Files.newBufferedReader(Paths.get(filePath))) {
+            String line;
+            boolean isFirstLine = true;
+            while ((line = reader.readLine()) != null) {
+                if (isFirstLine) {
+                    isFirstLine = false; // skip header
+                    continue;
+                }
 
-    // ✅ This endpoint will trigger CSV export
-    @GetMapping("/export")
-    public String getAllMergedEntities() {
-        List<MergedEntity> mergedEntities = dataService.getMergedEntities();
+                String[] tokens = line.split(";");
+                if (tokens.length >= 8) {
+                    ReportData data = new ReportData();
+                    data.setCrsCode(tokens[0]);
+                    data.setRegistrationAddress(tokens[1]);
+                    data.setRegAddressCountry(tokens[2]);
+                    data.setSiteBnpp(tokens[3]);
+                    data.setSiteCountry(tokens[4]);
+                    data.setSiteStatus(tokens[5]);
+                    data.setKycSegment(tokens[6]);
+                    data.setRicCodeDesc(tokens[7]);
 
-        // ✅ Make sure this path exists on your machine
-        CsvExportUtil.exportToCsv(mergedEntities, "C:/output/merged_report.csv");
-
-        return "CSV exported successfully to C:/output/merged_report.csv";
-    }
+                    repository.save(data);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }
