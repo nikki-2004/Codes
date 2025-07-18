@@ -1,40 +1,28 @@
-<!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <title>CSV Report Table</title>
-    <style>
-        table { width: 100%; border-collapse: collapse; }
-        th, td { border: 1px solid #aaa; padding: 8px; text-align: left; }
-        th { background-color: #f2f2f2; }
-    </style>
-</head>
-<body>
-<h2>CSV Report Data</h2>
-<table>
-    <thead>
-    <tr>
-        <th>CRSCODE</th>
-        <th>Reg Address</th>
-        <th>Reg Address Country</th>
-        <th>Site BNPP</th>
-        <th>Site Country</th>
-        <th>Site Status</th>
-        <th>KYC Segment</th>
-        <th>RIC (Code - Desc)</th>
-    </tr>
-    </thead>
-    <tbody>
-    <tr th:each="data : ${reportList}">
-        <td th:text="${data.crsCode}"></td>
-        <td th:text="${data.registrationAddress}"></td>
-        <td th:text="${data.regAddressCountry}"></td>
-        <td th:text="${data.siteBnpp}"></td>
-        <td th:text="${data.siteCountry}"></td>
-        <td th:text="${data.siteStatus}"></td>
-        <td th:text="${data.kycSegment}"></td>
-        <td th:text="${data.ricCodeDesc}"></td>
-    </tr>
-    </tbody>
-</table>
-</body>
-</html>
+public class CsvImportUtil {
+
+    public static List<MergedEntity> readFromCsv(String filePath) {
+        List<MergedEntity> list = new ArrayList<>();
+        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
+            String line;
+            boolean headerSkipped = false;
+            while ((line = br.readLine()) != null) {
+                if (!headerSkipped) {
+                    headerSkipped = true;
+                    continue;
+                }
+                String[] values = line.split(",", -1); // -1 to keep empty fields
+                MergedEntity entity = new MergedEntity();
+                entity.setPtyId(values[0]);
+                entity.setSiteCountry(values[1]);
+                entity.setSiteStatus(values[2]);
+                entity.setKycSegment(values[3]);
+                entity.setRicCode(values[4]);
+                entity.setRicDesc(values[5]);
+                list.add(entity);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        return list;
+    }
+}
