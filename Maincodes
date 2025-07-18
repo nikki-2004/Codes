@@ -1,28 +1,45 @@
-public class CsvImportUtil {
+package org.example.service;
 
-    public static List<MergedEntity> readFromCsv(String filePath) {
-        List<MergedEntity> list = new ArrayList<>();
-        try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
-            String line;
-            boolean headerSkipped = false;
-            while ((line = br.readLine()) != null) {
-                if (!headerSkipped) {
-                    headerSkipped = true;
-                    continue;
-                }
-                String[] values = line.split(",", -1); // -1 to keep empty fields
-                MergedEntity entity = new MergedEntity();
-                entity.setPtyId(values[0]);
-                entity.setSiteCountry(values[1]);
-                entity.setSiteStatus(values[2]);
-                entity.setKycSegment(values[3]);
-                entity.setRicCode(values[4]);
-                entity.setRicDesc(values[5]);
-                list.add(entity);
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-        return list;
-    }
+import com.opencsv.CSVReader;
+import org.example.model.ReportData;
+import org.example.repository.ReportRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import jakarta.annotation.PostConstruct;
+import java.io.FileReader;
+import java.util.List;
+
+@Service
+public class CsvImportService {
+
+    @Autowired
+    private ReportRepository reportRepository;
+
+    @PostConstruct
+    public void importCsvData() {
+        try (CSVReader reader = new CSVReader(new FileReader("C:/your/path/yourfile.csv"))) {
+            List<String[]> rows = reader.readAll();
+
+            for (String[] row : rows) {
+                // Skip header
+                if (row[0].equalsIgnoreCase("CRSCODE")) continue;
+
+                ReportData data = new ReportData();
+                data.setCrsCode(row[0]);
+                data.setRegistrationAddress(row[1]);
+                data.setRegAddressCountry(row[2]);
+                data.setSiteBnpp(row[3]);
+                data.setSiteCountry(row.length > 4 ? row[4] : null);
+                data.setSiteStatus(row.length > 5 ? row[5] : null);
+                data.setKycSegment(row.length > 6 ? row[6] : null);
+                data.setRicCodeDesc(row.length > 7 ? row[7] : null);
+
+                reportRepository.save(data);
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace(); // Optional: use proper logger
+        }
+    }
 }
