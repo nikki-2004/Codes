@@ -1,2 +1,12 @@
 
-1
+CREATE TABLE export_data (
+    id IDENTITY PRIMARY KEY,
+    crs_code VARCHAR(255),
+    reg_address VARCHAR(1000),
+    reg_country VARCHAR(255),
+    site_bnpp VARCHAR(255),
+    site_country VARCHAR(255),
+    site_status VARCHAR(255),
+    kyc_segment VARCHAR(255),
+    ric VARCHAR(2000)
+);
