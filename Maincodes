@@ -1,50 +1,34 @@
-<!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
-<head>
-    <meta charset="UTF-8">
-    <title>Exported Data</title>
-    <style>
-        table {
-            width: 100%;
-            border-collapse: collapse;
+package org.example.util;
+
+import org.example.model.ExportData;
+import org.example.model.MergedEntity;
+import org.example.repository.ExportDataRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+
+@Component
+public class CsvExportUtil {
+
+    @Autowired
+    private ExportDataRepository exportDataRepository;
+
+    public void saveToDatabase(List<MergedEntity> mergedEntities) {
+        System.out.println(">>> Saving to DB...");
+        for (MergedEntity entity : mergedEntities) {
+            ExportData data = new ExportData();
+            data.setCrsCode(entity.getIdentifiers().getCrsCode());
+            data.setRegAddress(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getFullAddress() : null);
+            data.setRegCountry(entity.getRegistrationAddress() != null ? entity.getRegistrationAddress().getCountry() : null);
+            data.setSiteBnpp(entity.getKycSites().isEmpty() ? null : entity.getKycSites().get(0).getSiteEntity());
+            data.setSiteCountry(entity.getKycSites().isEmpty() ? null : entity.getKycSites().get(0).getSiteCountry());
+            data.setSiteStatus(entity.getKycSites().isEmpty() ? null : entity.getKycSites().get(0).getSiteStatus());
+            data.setKycSegment(entity.getKycSegments().isEmpty() ? null : entity.getKycSegments().get(0).getKycSegment());
+            data.setRic(entity.getRadixData().isEmpty() ? null : entity.getRadixData().get(0).getRic());
+
+            exportDataRepository.save(data);
         }
-        th, td {
-            border: 1px solid #999;
-            padding: 8px;
-            text-align: left;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-    </style>
-</head>
-<body>
-    <h2>Exported Data Table</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>CRS Code</th>
-                <th>Reg Address</th>
-                <th>Reg Country</th>
-                <th>Site BNPP</th>
-                <th>Site Country</th>
-                <th>Site Status</th>
-                <th>KYC Segment</th>
-                <th>RIC</th>
-            </tr>
-        </thead>
-        <tbody>
-            <tr th:each="data : ${exportDataList}">
-                <td th:text="${data.crsCode}">-</td>
-                <td th:text="${data.regAddress}">-</td>
-                <td th:text="${data.regCountry}">-</td>
-                <td th:text="${data.siteBnpp}">-</td>
-                <td th:text="${data.siteCountry}">-</td>
-                <td th:text="${data.siteStatus}">-</td>
-                <td th:text="${data.kycSegment}">-</td>
-                <td th:text="${data.ric}">-</td>
-            </tr>
-        </tbody>
-    </table>
-</body>
-</html>
+        System.out.println(">>> Data saved to H2.");
+    }
+}
