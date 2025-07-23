@@ -1,3 +1,15 @@
+package org.example.service;
+
+import jakarta.annotation.PostConstruct;
+import org.example.model.ReportData;
+import org.example.repository.ReportRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.io.BufferedReader;
+import java.io.FileReader;
+import java.io.IOException;
+
 @Service
 public class ReportService {
 
@@ -6,32 +18,47 @@ public class ReportService {
 
     @PostConstruct
     public void loadCsvData() {
-        String filePath = "C:/path/to/your/file.csv"; // use full path if needed
+        String filePath = "C:\\new\\merged_output.csv";
 
         try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
             String line;
+
+            // Skip the first row (CSV Header)
+            boolean isFirstLine = true;
+
             while ((line = br.readLine()) != null) {
-                // Skip empty lines
                 if (line.trim().isEmpty()) continue;
 
-                // Split by ';' and allow empty fields
-                String[] fields = line.split(";", -1);
+                // Skip the header
+                if (isFirstLine) {
+                    isFirstLine = false;
+                    continue;
+                }
 
+                // Split line by comma
+                String[] fields = line.split(",", -1);
+
+                // Ensure minimum expected fields
                 if (fields.length >= 1) {
                     ReportData data = new ReportData();
-                    data.setCrsCode(fields[0]);
+
+                    // Set fields in exact order:
+                    data.setCrsCode(fields.length > 0 ? fields[0] : null);
                     data.setRegAddress(fields.length > 1 ? fields[1] : null);
                     data.setRegCountry(fields.length > 2 ? fields[2] : null);
-                    data.setSiteBnpp(fields.length > 3 ? fields[3] : null);
+                    data.setSiteBnppEntity(fields.length > 3 ? fields[3] : null);
                     data.setSiteCountry(fields.length > 4 ? fields[4] : null);
                     data.setSiteStatus(fields.length > 5 ? fields[5] : null);
                     data.setKycSegment(fields.length > 6 ? fields[6] : null);
-                    data.setRic(fields.length > 7 ? fields[7] : null);
+                    data.setRIC(fields.length > 7 ? fields[7] : null);
 
+                    // Save to DB
                     reportRepository.save(data);
                 }
             }
-            System.out.println("CSV loaded successfully.");
+
+            System.out.println("CSV Loaded successfully.");
+
         } catch (IOException e) {
             e.printStackTrace();
         }
