@@ -23,37 +23,35 @@ public class ReportService {
         try (BufferedReader br = new BufferedReader(new FileReader(filePath))) {
             String line;
 
-            // Skip the first row (CSV Header)
             boolean isFirstLine = true;
 
             while ((line = br.readLine()) != null) {
                 if (line.trim().isEmpty()) continue;
 
-                // Skip the header
+                // Skip header
                 if (isFirstLine) {
                     isFirstLine = false;
                     continue;
                 }
 
-                // Split line by comma
-                String[] fields = line.split(",", -1);
+                // Use comma as separator
+                String[] fields = line.split(",", -1);  // Correct CSV split
 
-                // Ensure minimum expected fields
-                if (fields.length >= 1) {
+                if (fields.length >= 8) {  // Ensure enough fields
                     ReportData data = new ReportData();
 
-                    // Set fields in exact order:
-                    data.setCrsCode(fields.length > 0 ? fields[0] : null);
-                    data.setRegAddress(fields.length > 1 ? fields[1] : null);
-                    data.setRegCountry(fields.length > 2 ? fields[2] : null);
-                    data.setSiteBnppEntity(fields.length > 3 ? fields[3] : null);
-                    data.setSiteCountry(fields.length > 4 ? fields[4] : null);
-                    data.setSiteStatus(fields.length > 5 ? fields[5] : null);
-                    data.setKycSegment(fields.length > 6 ? fields[6] : null);
-                    data.setRIC(fields.length > 7 ? fields[7] : null);
+                    data.setCrsCode(fields[0].trim());
+                    data.setRegAddress(fields[1].trim());
+                    data.setRegCountry(fields[2].trim());
+                    data.setSiteBnppEntity(fields[3].trim());
+                    data.setSiteCountry(fields[4].trim());
+                    data.setSiteStatus(fields[5].trim());
+                    data.setKycSegment(fields[6].trim());
+                    data.setRIC(fields[7].trim());
 
-                    // Save to DB
                     reportRepository.save(data);
+                } else {
+                    System.err.println("Skipping line due to missing fields: " + line);
                 }
             }
 
