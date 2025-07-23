@@ -33,7 +33,7 @@ public class ReportService {
                     continue;
                 }
 
-                String[] fields = line.split(",", -1);
+                String[] fields = line.split(",", -1);  // CSV split
 
                 if (fields.length >= 8) {
                     ReportData data = new ReportData();
@@ -48,11 +48,11 @@ public class ReportService {
 
                     reportRepository.save(data);
                 } else {
-                    System.out.println("Skipping incomplete line: " + line);
+                    System.out.println("❌ Skipping incomplete line (" + fields.length + " fields): " + line);
                 }
             }
 
-            System.out.println("CSV loaded successfully!");
+            System.out.println("✅ CSV loaded successfully!");
 
         } catch (IOException e) {
             e.printStackTrace();
