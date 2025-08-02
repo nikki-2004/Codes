@@ -1,34 +1,28 @@
-package org.example.repository;
+package org.example.controller;
 
-import org.example.model.ReportData;
-import org.junit.jupiter.api.Test;
+import org.example.model.MergedEntity;
+import org.example.service.MergedEntityService;
+import org.example.util.CsvExportUtil;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.web.bind.annotation.*;
 
-import java.util.Optional;
+import java.util.List;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
-@DataJpaTest
-class ReportRepositoryTest {
+@RestController
+@RequestMapping("/api/csv")
+public class CsvExportController {
 
     @Autowired
-    private ReportRepository reportRepository;
+    private MergedEntityService mergedEntityService; // Service to fetch merged entities
 
-    @Test
-    void shouldSaveAndFindReportData() {
-        ReportData report = new ReportData();
-        report.setCrsCode("CRS123");
-        report.setRegAddress("123 Street");
-        report.setRegCountry("India");
-
-        ReportData saved = reportRepository.save(report);
-
-        Optional<ReportData> found = reportRepository.findById(saved.getId());
-
-        assertThat(found).isPresent();
-        assertThat(found.get().getCrsCode()).isEqualTo("CRS123");
-        assertThat(found.get().getRegAddress()).isEqualTo("123 Street");
-        assertThat(found.get().getRegCountry()).isEqualTo("India");
+    /**
+     * Export merged entities to CSV.
+     * Example usage: GET http://localhost:8080/api/csv/export?filePath=C:/new/merged_output.csv
+     */
+    @GetMapping("/export")
+    public String exportMergedDataToCsv(@RequestParam String filePath) {
+        List<MergedEntity> mergedEntities = mergedEntityService.getAllMergedEntities();
+        CsvExportUtil.exportToCsv(mergedEntities, filePath);
+        return "CSV exported successfully to: " + filePath;
     }
 }
