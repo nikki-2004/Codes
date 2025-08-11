@@ -1,28 +1,11 @@
-package org.example.controller;
+Email without sensitivity: In Hobart, sensitivity should not be displayed in the email.
 
-import org.example.model.MergedEntity;
-import org.example.service.MergedEntityService;
-import org.example.util.CsvExportUtil;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.web.bind.annotation.*;
+Current behavior in the application: We are getting the default sensitivity.
 
-import java.util.List;
+Expected behavior in Hobart: Email should be without sensitivity.
 
-@RestController
-@RequestMapping("/api/csv")
-public class CsvExportController {
+Email with a different sensitivity (other than our Outlook sensitivities): In Hobart, sensitivity should not be displayed in the email.
 
-    @Autowired
-    private MergedEntityService mergedEntityService; // Service to fetch merged entities
+Current behavior in the application: We are getting the default sensitivity.
 
-    /**
-     * Export merged entities to CSV.
-     * Example usage: GET http://localhost:8080/api/csv/export?filePath=C:/new/merged_output.csv
-     */
-    @GetMapping("/export")
-    public String exportMergedDataToCsv(@RequestParam String filePath) {
-        List<MergedEntity> mergedEntities = mergedEntityService.getAllMergedEntities();
-        CsvExportUtil.exportToCsv(mergedEntities, filePath);
-        return "CSV exported successfully to: " + filePath;
-    }
-}
+Expected behavior in Hobart: Email should display "Confidential intra extra group use".
