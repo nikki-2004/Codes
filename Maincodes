@@ -1,40 +1,24 @@
-ChatGPT
-You said:
-[TEST DEFECT] In Emessage screen within SR, When clicking Reply/Reply All, Adding the email address in the CC and BCC fields and click on send it is not working.
-
-Actual Step:
-
-Entering the email Address in CC and Bcc fields and click on send emessage is not sending
-
-atch...
-
-Expected Step:
-
-Entering the email Address in CC and Bcc fields and click on send emessage should be send
-ChatGPT said:
-Here’s a cleaner, well-structured version of your defect report so it’s easier for developers/testers to understand and reproduce:
-
 Defect Title:
-Emessage screen – Unable to send when CC/BCC fields are populated in Reply/Reply All mode
+Emessage body – Emojis not displaying correctly when downloaded from API
 
 Module/Screen:
-SR → Emessage screen
+SR → Emessage body (via API download)
 
 Steps to Reproduce:
 
-Open an existing SR.
+Open an existing SR and go to the Emessage screen.
 
-Go to the Emessage screen.
+In the message body, insert one or more emojis.
 
-Click Reply or Reply All on an existing message.
+Send the Emessage.
 
-Enter a valid email address in the CC and/or BCC fields.
-
-Click Send.
+Download the Emessage HTML body via the API.
 
 Actual Result:
-Message is not sent when CC or BCC addresses are entered.
+In the downloaded HTML body from the API, emojis are replaced with the "?" symbol.
 
+Expected Result:
+Emojis should be displayed correctly in the downloaded HTML body, exactly as they appear in the original Emessage body.
 Expected Result:
 Message should be sent successfully even when valid CC and/or BCC addresses are added.
 
