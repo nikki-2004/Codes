@@ -1,11 +1,45 @@
-Email without sensitivity: In Hobart, sensitivity should not be displayed in the email.
+ChatGPT
+You said:
+[TEST DEFECT] In Emessage screen within SR, When clicking Reply/Reply All, Adding the email address in the CC and BCC fields and click on send it is not working.
 
-Current behavior in the application: We are getting the default sensitivity.
+Actual Step:
 
-Expected behavior in Hobart: Email should be without sensitivity.
+Entering the email Address in CC and Bcc fields and click on send emessage is not sending
 
-Email with a different sensitivity (other than our Outlook sensitivities): In Hobart, sensitivity should not be displayed in the email.
+atch...
 
-Current behavior in the application: We are getting the default sensitivity.
+Expected Step:
 
-Expected behavior in Hobart: Email should display "Confidential intra extra group use".
+Entering the email Address in CC and Bcc fields and click on send emessage should be send
+ChatGPT said:
+Here’s a cleaner, well-structured version of your defect report so it’s easier for developers/testers to understand and reproduce:
+
+Defect Title:
+Emessage screen – Unable to send when CC/BCC fields are populated in Reply/Reply All mode
+
+Module/Screen:
+SR → Emessage screen
+
+Steps to Reproduce:
+
+Open an existing SR.
+
+Go to the Emessage screen.
+
+Click Reply or Reply All on an existing message.
+
+Enter a valid email address in the CC and/or BCC fields.
+
+Click Send.
+
+Actual Result:
+Message is not sent when CC or BCC addresses are entered.
+
+Expected Result:
+Message should be sent successfully even when valid CC and/or BCC addresses are added.
+
+Additional Notes:
+
+Issue occurs only when CC/BCC fields are used.
+
+Sending without CC/BCC works as expected
