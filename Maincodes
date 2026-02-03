@@ -1,1 +1,7 @@
 
+INSERT INTO approval_flow_config
+(travel_type, level_no, approver_role)
+VALUES
+('DOMESTIC', 1, 'LINE_MANAGER'),
+('DOMESTIC', 2, 'IT_CLUSTER_HEAD'),
+('DOMESTIC', 3, 'BUSINESS_MANAGER');
