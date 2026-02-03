@@ -1,3 +1,4 @@
-SELECT travel_type, level_no, approver_role
-FROM approval_flow_config
-ORDER BY travel_type, level_no;
+SELECT *
+FROM travel_request_approvals
+WHERE travel_request_id = 1
+ORDER BY level_no;
