@@ -1,5 +1,1 @@
-INSERT INTO approval_flow_config (travel_type, level_no, approver_role)
-VALUES
-('DOMESTIC', 1, 'REPORTING_MANAGER'),
-('DOMESTIC', 2, 'FINANCE'),
-('DOMESTIC', 3, 'HR');
+
