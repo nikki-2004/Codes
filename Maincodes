@@ -1,4 +1,14 @@
-UPDATE travel_requests
-SET request_status = 'IN_APPROVAL',
-    submitted_at = CURRENT_TIMESTAMP
-WHERE travel_request_id = 1;
+INSERT INTO travel_request_approvals
+(travel_request_id, level_no, approver_role)
+SELECT
+    1,
+    level_no,
+    approver_role
+FROM approval_flow_config
+WHERE travel_type =
+(
+    SELECT travel_type
+    FROM travel_requests
+    WHERE travel_request_id = 1
+)
+ORDER BY level_no;
