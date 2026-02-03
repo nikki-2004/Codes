@@ -1,6 +1,12 @@
-INSERT INTO employees VALUES
-('E101', 'Ravi Kumar', 'LINE_MANAGER', 'IT'),
-('E102', 'Sandeep Rao', 'IT_CLUSTER_HEAD', 'IT'),
-('E103', 'Anita Sharma', 'BUSINESS_MANAGER', 'IT'),
-('E104', 'EXCO Board', 'EXCO', 'CORPORATE'),
-('E105', 'CIO Office', 'CIO_OFFICE', 'CORPORATE');
+SELECT
+    a.level_no,
+    a.approver_role,
+    e.employee_id,
+    e.employee_name
+FROM travel_request_approvals a
+JOIN employees e
+  ON e.approver_role = a.approver_role
+WHERE a.travel_request_id = 1
+  AND a.approval_status = 'PENDING'
+ORDER BY a.level_no
+LIMIT 1;
