@@ -1,4 +1,12 @@
-SELECT level_no, approver_role, approval_status
-FROM travel_request_approvals
-WHERE travel_request_id = 1
-ORDER BY level_no;
+SELECT
+    a.level_no,
+    a.approver_role,
+    e.employee_id,
+    e.employee_name
+FROM travel_request_approvals a
+JOIN employees e
+  ON e.approver_role = a.approver_role
+WHERE a.travel_request_id = 1
+  AND a.approval_status = 'PENDING'
+ORDER BY a.level_no
+LIMIT 1;
