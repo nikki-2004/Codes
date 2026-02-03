@@ -1,1 +1,6 @@
-
+-- DOMESTIC
+INSERT INTO travel_approvers (role_name, travel_type, approval_level)
+VALUES
+('LINE_MANAGER', 'DOMESTIC', 1),
+('IT_CLUSTER_HEAD', 'DOMESTIC', 2),
+('BUSINESS_MANAGER', 'DOMESTIC', 3);
