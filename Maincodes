@@ -1,8 +1,1 @@
--- INTERNATIONAL
-INSERT INTO travel_approvers (role_name, travel_type, approval_level)
-VALUES
-('LINE_MANAGER', 'INTERNATIONAL', 1),
-('IT_CLUSTER_HEAD', 'INTERNATIONAL', 2),
-('BUSINESS_MANAGER', 'INTERNATIONAL', 3),
-('EXCO', 'INTERNATIONAL', 4),
-('CIO', 'INTERNATIONAL', 5);
+
