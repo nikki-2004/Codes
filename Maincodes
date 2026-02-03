@@ -1,1 +1,3 @@
-
+SELECT travel_type, level_no, approver_role
+FROM approval_flow_config
+ORDER BY travel_type, level_no;
