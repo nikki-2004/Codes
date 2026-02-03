@@ -1,4 +1,1 @@
-SELECT *
-FROM travel_request_approvals
-WHERE travel_request_id = 1
-ORDER BY level_no;
+
