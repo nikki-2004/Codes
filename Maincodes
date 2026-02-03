@@ -1,6 +1,6 @@
-CREATE TABLE employees (
-    employee_id    VARCHAR(20) PRIMARY KEY,
-    employee_name  VARCHAR(100),
-    approver_role  VARCHAR(50),
-    department     VARCHAR(50)
-);
+INSERT INTO employees VALUES
+('E101', 'Ravi Kumar', 'LINE_MANAGER', 'IT'),
+('E102', 'Sandeep Rao', 'IT_CLUSTER_HEAD', 'IT'),
+('E103', 'Anita Sharma', 'BUSINESS_MANAGER', 'IT'),
+('E104', 'EXCO Board', 'EXCO', 'CORPORATE'),
+('E105', 'CIO Office', 'CIO_OFFICE', 'CORPORATE');
