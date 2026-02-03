@@ -1,8 +1,18 @@
-INSERT INTO approval_flow_config
-(travel_type, level_no, approver_role)
-VALUES
-('INTERNATIONAL', 1, 'PROJECT_MANAGER'),
-('INTERNATIONAL', 2, 'DEPARTMENT_HEAD'),
-('INTERNATIONAL', 3, 'FINANCE'),
-('INTERNATIONAL', 4, 'HR'),
-('INTERNATIONAL', 5, 'COMPLIANCE');
+CREATE TABLE travel_request_approvals (
+    approval_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+
+    travel_request_id BIGINT NOT NULL
+        REFERENCES travel_requests(travel_request_id)
+        ON DELETE CASCADE,
+
+    level_no          INT NOT NULL,
+    approver_role     VARCHAR(50) NOT NULL,
+
+    approver_id       VARCHAR(20),
+    approval_status   VARCHAR(20)
+        CHECK (approval_status IN ('PENDING','APPROVED','REJECTED'))
+        DEFAULT 'PENDING',
+
+    action_date       TIMESTAMP,
+    comments          VARCHAR(255)
+);
