@@ -1,18 +1,4 @@
-CREATE TABLE travel_request_approvals (
-    approval_id       BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-
-    travel_request_id BIGINT NOT NULL
-        REFERENCES travel_requests(travel_request_id)
-        ON DELETE CASCADE,
-
-    level_no          INT NOT NULL,
-    approver_role     VARCHAR(50) NOT NULL,
-
-    approver_id       VARCHAR(20),
-    approval_status   VARCHAR(20)
-        CHECK (approval_status IN ('PENDING','APPROVED','REJECTED'))
-        DEFAULT 'PENDING',
-
-    action_date       TIMESTAMP,
-    comments          VARCHAR(255)
-);
+UPDATE travel_requests
+SET request_status = 'IN_APPROVAL',
+    submitted_at = CURRENT_TIMESTAMP
+WHERE travel_request_id = 1;
