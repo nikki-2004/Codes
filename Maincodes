@@ -1,12 +1,13 @@
-SELECT
-    a.level_no,
-    a.approver_role,
-    e.employee_id,
-    e.employee_name
-FROM travel_request_approvals a
-JOIN employees e
-  ON e.approver_role = a.approver_role
-WHERE a.travel_request_id = 1
-  AND a.approval_status = 'PENDING'
-ORDER BY a.level_no
-LIMIT 1;
+UPDATE travel_request_approvals
+SET approval_status = 'APPROVED',
+    approver_id = 'E101',
+    action_date = CURRENT_TIMESTAMP,
+    comments = 'Approved by Line Manager'
+WHERE approval_id = (
+    SELECT approval_id
+    FROM travel_request_approvals
+    WHERE travel_request_id = 1
+      AND approval_status = 'PENDING'
+    ORDER BY level_no
+    LIMIT 1
+);
