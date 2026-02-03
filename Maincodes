@@ -1,2 +1,6 @@
-DELETE FROM approval_flow_config
-WHERE travel_type = 'DOMESTIC';
+INSERT INTO approval_flow_config
+(travel_type, level_no, approver_role)
+VALUES
+('DOMESTIC', 1, 'PROJECT_MANAGER'),
+('DOMESTIC', 2, 'DEPARTMENT_HEAD'),
+('DOMESTIC', 3, 'FINANCE');
