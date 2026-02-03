@@ -1,2 +1,11 @@
-DELETE FROM travel_request_approvals
-WHERE travel_request_id = 1;
+INSERT INTO travel_request_approvals
+(travel_request_id, level_no, approver_role)
+SELECT
+    tr.travel_request_id,
+    af.level_no,
+    af.approver_role
+FROM travel_requests tr
+JOIN approval_flow_config af
+  ON af.travel_type = tr.travel_type
+WHERE tr.travel_request_id = 1
+ORDER BY af.level_no;
