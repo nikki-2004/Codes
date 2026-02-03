@@ -1,13 +1,2 @@
-UPDATE travel_request_approvals
-SET approval_status = 'APPROVED',
-    approver_id = 'E101',
-    action_date = CURRENT_TIMESTAMP,
-    comments = 'Approved by Line Manager'
-WHERE approval_id = (
-    SELECT approval_id
-    FROM travel_request_approvals
-    WHERE travel_request_id = 1
-      AND approval_status = 'PENDING'
-    ORDER BY level_no
-    LIMIT 1
-);
+DELETE FROM travel_request_approvals
+WHERE travel_request_id = 1;
