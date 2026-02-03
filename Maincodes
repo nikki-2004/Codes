@@ -1,1 +1,6 @@
-
+CREATE TABLE employees (
+    employee_id    VARCHAR(20) PRIMARY KEY,
+    employee_name  VARCHAR(100),
+    approver_role  VARCHAR(50),
+    department     VARCHAR(50)
+);
