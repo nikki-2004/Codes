@@ -1,8 +1,1 @@
-INSERT INTO approval_flow_config
-(travel_type, level_no, approver_role)
-VALUES
-('INTERNATIONAL', 1, 'LINE_MANAGER'),
-('INTERNATIONAL', 2, 'IT_CLUSTER_HEAD'),
-('INTERNATIONAL', 3, 'BUSINESS_MANAGER'),
-('INTERNATIONAL', 4, 'EXCO'),
-('INTERNATIONAL', 5, 'CIO_OFFICE');
+
